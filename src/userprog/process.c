@@ -21,6 +21,7 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+static bool initialize_stack (void **esp, const char *file_name);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -88,6 +89,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  while (1);
   return -1;
 }
 
@@ -195,7 +197,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *file_name);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -302,7 +304,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, file_name))
     goto done;
 
   /* Start address. */
@@ -427,7 +429,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char *file_name) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -437,12 +439,61 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE;
+        initialize_stack (esp, file_name);
       else
         palloc_free_page (kpage);
     }
   return success;
 }
+
+/* initialize argv and argc stack */
+static bool 
+initialize_stack (void **esp, const char *file_name)
+{
+  /* YunFan drove here */
+  *esp = PHYS_BASE;
+  bool success = false;
+  char *token, *save_ptr, *s;
+  strlcpy (s, file_name, sizeof (file_name));
+  char *argv[128];
+  int i = 0, offset_str = 0, offset_ptr, argc;
+
+  for (token = strtok_r (s, " ", &save_ptr); token != NULL;
+      token = strtok_r (NULL, " ", &save_ptr))
+    {
+      argv[i++] = token;
+      offset_str += sizeof (token);
+    }
+  /* Matthew drove here */
+  argv[i] = NULL;
+  argc = i;
+  offset_ptr = offset_str;
+  offset_ptr += 4 - (offset_ptr % 4); /* offset to end of word allign */
+  offset_ptr += 4 * (argc + 1);       /* offset of argv[0] from top of stack */
+
+  void *str_ptr = *esp - offset_str;    /* address of argv[0] */
+  void *arg_ptr = *esp - offset_ptr;    /* ponter to address of argv[0] */
+
+  /* David drove here */
+  memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
+  memset ((arg_ptr - 8), argc, sizeof (int));
+  memset ((arg_ptr - 12), 0, sizeof (int));
+
+  /* copies the contents of tokenized string array to top of stack
+     copies the addresses of each tokenized string to bottom(ish) of stack */
+  for (i = 0; i < argc; i++)
+    {
+      memcpy (str_ptr, argv[i], sizeof (argv[i]));
+      memcpy (arg_ptr, &str_ptr, sizeof (str_ptr));
+      str_ptr += sizeof (argv[i]);
+      arg_ptr += sizeof (str_ptr);
+    }
+  memset (arg_ptr, NULL, sizeof (arg_ptr)); /* adds null ptr at argv[c] */
+
+  success = true;
+  return success;
+}
+
 
 /* Adds a mapping from user virtual address UPAGE to kernel
    virtual address KPAGE to the page table.
