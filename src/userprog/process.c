@@ -453,8 +453,9 @@ initialize_stack (void **esp, const char *file_name)
   /* YunFan drove here */
   *esp = PHYS_BASE;
   bool success = false;
-  char *token, *save_ptr, *s;
-  strlcpy (s, file_name, sizeof (file_name));
+  char *token, *save_ptr;
+  char s[128];
+  strlcpy (s, file_name, sizeof (file_name) + 1);
   char *argv[128];
   int i = 0, offset_str = 0, offset_ptr, argc;
 
@@ -462,7 +463,7 @@ initialize_stack (void **esp, const char *file_name)
       token = strtok_r (NULL, " ", &save_ptr))
     {
       argv[i++] = token;
-      offset_str += sizeof (token);
+      offset_str += (sizeof (token) + 1);
     }
   /* Matthew drove here */
   argv[i] = NULL;
@@ -473,19 +474,22 @@ initialize_stack (void **esp, const char *file_name)
 
   void *str_ptr = *esp - offset_str;    /* address of argv[0] */
   void *arg_ptr = *esp - offset_ptr;    /* ponter to address of argv[0] */
-
   /* David drove here */
   memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
+  printf("start of argv %p\n", arg_ptr - 4);
   memset ((arg_ptr - 8), argc, sizeof (int));
+  printf("argc %d\n", argc);
   memset ((arg_ptr - 12), 0, sizeof (int));
-
+  *esp = arg_ptr - 12;
   /* copies the contents of tokenized string array to top of stack
      copies the addresses of each tokenized string to bottom(ish) of stack */
   for (i = 0; i < argc; i++)
     {
-      memcpy (str_ptr, argv[i], sizeof (argv[i]));
+      memcpy (str_ptr, argv[i], sizeof (argv[i]) + 1);
+      printf("str %s str addr %p\n", str_ptr, str_ptr);
       memcpy (arg_ptr, &str_ptr, sizeof (str_ptr));
-      str_ptr += sizeof (argv[i]);
+      printf ("arg_ptr addr: %p\n", arg_ptr);
+      str_ptr += (sizeof (argv[i]) + 1);
       arg_ptr += sizeof (str_ptr);
     }
   memset (arg_ptr, NULL, sizeof (arg_ptr)); /* adds null ptr at argv[c] */
