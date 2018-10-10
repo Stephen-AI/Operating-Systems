@@ -160,7 +160,9 @@ open_handler (struct intr_frame *f UNUSED)
       thread_exit ();
     }
   struct thread *cur = thread_current ();
-  if ((file = filesys_open (buf)) != NULL)
+  /* check if the file is in the file system
+     if it is in the file system, look for a fd number for the file*/
+  if ((file = filesys_open (buf)) != NULL) 
     {
       for (fd = 2; fd < MAX_OPEN_FILES; fd++)
         {
@@ -179,18 +181,78 @@ open_handler (struct intr_frame *f UNUSED)
 static void
 filesize_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
+  /* Matthew driving */
+  int *fd_ptr = (int *)(f->esp + 4), file_size; 
   printf ("filesize called!\n");
-  thread_exit ();
+  if (!is_valid_ptr (fd_ptr))
+    {
+      printf ("invalid memory access from filesize syscall");
+      thread_exit ();
+    }
+
+  int fd = *fd_ptr;
+
+  if (fd <= 1 || fd >= MAX_OPEN_FILES)
+    {
+      f->eax = -1;
+      return;
+    }
+  else
+    {
+      struct file *file = thread_current ()->open_files[fd];
+      if (file == NULL)
+        {
+          f->eax = -1;
+          return;
+        }
+      else
+        {
+          file_size = file_length (file);
+          f->eax = file_size;
+        }
+    }
 }
 
 /* read system call handler */
 static void
 read_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
+  /* YunFan driving */
+  void *size_ptr = f->esp + 12;
+  char *buf = *((char **) (f->esp + 8));
+
+  if (!is_valid_ptr (size_ptr) || !is_valid_ptr (buf))
+    {
+      printf ("invalid memory access from read syscall");
+      thread_exit ();
+    }
   printf ("read called!\n");
-  thread_exit ();
+
+  int fd = *(int *)(f->esp + 4), byte_read; 
+  
+  if (fd == 0)
+    {
+      input_getc (); /* read stio and complete */
+    }
+  else if (fd <= 1 || fd >= MAX_OPEN_FILES)
+    {
+      f->eax = -1;
+      return;
+    }
+  else
+    {
+      struct file *file = thread_current ()->open_files[fd];
+      if (file == NULL)
+        {
+          f->eax = -1;
+          return;
+        }
+      else
+        {
+          byte_read = file_read (file, buf, *(int *)size_ptr);
+          f->eax = byte_read;
+        }
+    }
 }
 
 /* write system call handler */
@@ -199,13 +261,12 @@ write_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
   void *count_ptr = f->esp + 12;
-  char *buf = *((char **) f->esp + 2);
+  char *buf = *((char **) (f->esp + 8));
   if (!is_valid_ptr (count_ptr) || !is_valid_ptr (buf))
     {
       printf ("invalid memory access from write syscall");
       thread_exit ();
     }
-  
   
   putbuf (buf, *((int *) count_ptr));
 }
