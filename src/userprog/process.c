@@ -480,7 +480,7 @@ initialize_stack (void **esp, const char *file_name)
   /* David drove here */
   memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
   printf("start of argv %p\n", arg_ptr - 4);
-  memset ((arg_ptr - 8), argc, sizeof (int));
+  memcpy ((arg_ptr - 8), &argc, sizeof (int));
   printf("argc %d\n", argc);
   memset ((arg_ptr - 12), 0, sizeof (int));
   *esp = arg_ptr - 12;

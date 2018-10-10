@@ -5,6 +5,7 @@
 #include "threads/thread.h"
 #include "userprog/pagedir.h"
 #include "threads/vaddr.h"
+#include "lib/kernel/console.h"
 
 /* David driving */
 static void syscall_handler (struct intr_frame *);
@@ -71,7 +72,7 @@ syscall_handler (struct intr_frame *f)
   }
 
   
-  thread_exit ();
+  // thread_exit ();
 }
 
 /* halt system call handler */
@@ -159,11 +160,17 @@ read_handler (struct intr_frame *f UNUSED)
 static void
 write_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
-  printf ("write called!\n");
-  void *buf = (f->esp + 8);
-  printf("buffer %Z\n", buf);
-  thread_exit ();
+  /* Matthew driving */
+  void *num_ptr = f->esp ;
+  void *count_ptr = f->esp + 12;
+  char *buf = *((char **) f->esp + 2);
+  if (!is_valid_ptr (count_ptr) || !is_valid_ptr (buf))
+    {
+      printf ("invalid memory access from write syscall");
+      thread_exit ();
+    }
+  
+  putbuf (buf, *((int *) count_ptr));
 }
 
 /* seek system call handler */
