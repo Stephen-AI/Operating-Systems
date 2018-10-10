@@ -6,6 +6,7 @@
 #include "userprog/pagedir.h"
 #include "threads/vaddr.h"
 #include "lib/kernel/console.h"
+#include "filesys/filesys.h"
 
 /* David driving */
 static void syscall_handler (struct intr_frame *);
@@ -89,7 +90,13 @@ static void
 exit_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
-  printf ("exit call!\n");
+  if (!is_valid_ptr (f->esp + 4))
+    {
+      printf("BAD stack ptr!!!\n");
+      thread_exit ();
+    }
+  int exit_status = *(int *)(f->esp + 4);
+  printf ("exit call with status %d!\n", exit_status);
   thread_exit ();
 }
 
@@ -115,9 +122,17 @@ wait_handler (struct intr_frame *f UNUSED)
 static void
 create_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
+  /* David driving */
+  void *size_ptr = f->esp + 8;
+  char *buf = *((char **) f->esp + 1);
+  if (!is_valid_ptr (size_ptr) || !is_valid_ptr (buf))
+    {
+      printf ("invalid memory access from create syscall");
+      thread_exit ();
+    }
   printf ("create called!\n");
-  thread_exit ();
+  bool success = filesys_create (buf, *(int *)size_ptr);
+  f->eax = success;
 }
 
 /* remove file system call handler */
@@ -133,9 +148,31 @@ remove_handler (struct intr_frame *f UNUSED)
 static void
 open_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
+  /* David driving */
+  void *file_ptr = f->esp + 4;
+  char *buf = *((char **) f->esp + 1);
+  struct file *file;
+  int fd;
   printf ("open called!\n");
-  thread_exit ();
+  if (!is_valid_ptr (file_ptr) || !is_valid_ptr (buf))
+    {
+      printf ("invalid memory from open syscall");
+      thread_exit ();
+    }
+  struct thread *cur = thread_current ();
+  if ((file = filesys_open (buf)) != NULL)
+    {
+      for (fd = 2; fd < MAX_OPEN_FILES; fd++)
+        {
+          if (cur->open_files[fd] == NULL)
+            {
+              cur->open_files[fd] = file;
+              f->eax = fd;
+              return;
+            }
+        }
+    }
+  f->eax = -1;
 }
 
 /* filesize system call handler */
@@ -161,7 +198,6 @@ static void
 write_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
-  void *num_ptr = f->esp ;
   void *count_ptr = f->esp + 12;
   char *buf = *((char **) f->esp + 2);
   if (!is_valid_ptr (count_ptr) || !is_valid_ptr (buf))
@@ -169,6 +205,7 @@ write_handler (struct intr_frame *f UNUSED)
       printf ("invalid memory access from write syscall");
       thread_exit ();
     }
+  
   
   putbuf (buf, *((int *) count_ptr));
 }
