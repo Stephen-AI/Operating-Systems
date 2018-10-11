@@ -139,7 +139,15 @@ remove_handler (struct intr_frame *f UNUSED)
 {
   /* Stephen driving */
   printf ("remove called!\n");
-  thread_exit ();
+  void *file_name_ptr = f->esp + 4;
+  char **file_name = (char **)file_name_ptr;
+  if (!is_valid_ptr (file_name_ptr) || !is_valid_ptr (*file_name))
+    {
+      printf ("invalid memory access from remove syscall");
+      thread_exit ();
+    }
+  
+  f->eax = filesys_remove (*file_name);
 }
 
 /* open file system call handler */
@@ -261,11 +269,16 @@ write_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
   int *count_ptr = (int *)(f->esp + 12);
-  /*TODO stop dereferencing stack pointer before checking validity */  
-  char *buf = *((char **) (f->esp + 8));
+  /*TODO stop dereferencing stack pointer before checking validity */ 
   int fd, bytes, buf_len, count;
   struct file *file;
-  if (!is_valid_ptr (count_ptr) || !is_valid_ptr (buf))
+  if (!is_valid_ptr (count_ptr))
+    {
+      printf ("invalid memory access from write syscall");
+      thread_exit ();
+    }
+  char *buf = *((char **) (f->esp + 8));
+  if (!is_valid_ptr (buf))
     {
       printf ("invalid memory access from write syscall");
       thread_exit ();
