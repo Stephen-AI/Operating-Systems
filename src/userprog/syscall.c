@@ -71,9 +71,6 @@ syscall_handler (struct intr_frame *f)
     thread_exit ();
     break;
   }
-
-  
-  // thread_exit ();
 }
 
 /* halt system call handler */
@@ -124,6 +121,7 @@ create_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
   void *size_ptr = f->esp + 8;
+  /*TODO stop dereferencing stack pointer before checking validity */
   char *buf = *((char **) f->esp + 1);
   if (!is_valid_ptr (size_ptr) || !is_valid_ptr (buf))
     {
@@ -150,13 +148,14 @@ open_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
   void *file_ptr = f->esp + 4;
+  /*TODO stop dereferencing stack pointer before checking validity */  
   char *buf = *((char **) f->esp + 1);
   struct file *file;
   int fd;
   printf ("open called!\n");
   if (!is_valid_ptr (file_ptr) || !is_valid_ptr (buf))
     {
-      printf ("invalid memory from open syscall");
+      printf ("invalid memory access from open syscall");
       thread_exit ();
     }
   struct thread *cur = thread_current ();
@@ -219,6 +218,7 @@ read_handler (struct intr_frame *f UNUSED)
 {
   /* YunFan driving */
   void *size_ptr = f->esp + 12;
+  /*TODO stop dereferencing stack pointer before checking validity */  
   char *buf = *((char **) (f->esp + 8));
 
   if (!is_valid_ptr (size_ptr) || !is_valid_ptr (buf))
@@ -260,33 +260,99 @@ static void
 write_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
-  void *count_ptr = f->esp + 12;
+  int *count_ptr = (int *)(f->esp + 12);
+  /*TODO stop dereferencing stack pointer before checking validity */  
   char *buf = *((char **) (f->esp + 8));
+  int fd, bytes, buf_len, count;
+  struct file *file;
   if (!is_valid_ptr (count_ptr) || !is_valid_ptr (buf))
     {
       printf ("invalid memory access from write syscall");
       thread_exit ();
     }
-  
-  putbuf (buf, *((int *) count_ptr));
+  fd = *(int *)(f->esp + 4);
+  buf_len = strlen (buf);
+  count = *((int *) count_ptr);
+  if (fd == 1)
+    {
+      if (count > buf_len)
+        count = buf_len;
+      putbuf (buf, count);
+      bytes = count;
+    }
+  else if (fd < 1 || fd >= MAX_OPEN_FILES)
+    {
+      bytes = 0;
+    }
+  else
+    {
+      file = thread_current ()->open_files[fd];
+      if (file == NULL)
+        {
+          printf ("file not in open files\n");
+          // TODO: THREAD EXIT???
+          thread_exit ();
+        }
+      bytes = file_write (file, buf, count);
+    }
+  f->eax = bytes;
 }
 
 /* seek system call handler */
 static void
 seek_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
+  /* David driving */
+  int *pos_ptr = (int *)(f->esp + 8);
+  /*TODO TEST SEEK */
+  int *fd_ptr = (int *)(f->esp + 4);
+  struct file *file;
   printf ("seek called!\n");
-  thread_exit ();
+  if (!is_valid_ptr (pos_ptr))
+    {
+      printf ("invalid memory access from seek syscall\n");
+      thread_exit ();
+    }
+  if (*fd_ptr <= 1)
+    {
+      printf ("not a valid file to seek\n");
+      thread_exit ();
+    }
+  file = thread_current ()->open_files[*fd_ptr];
+  if (file == NULL)
+    {
+      printf ("file not in thread's fd\n");
+      thread_exit ();
+    }
+  file_seek (file, *pos_ptr);
 }
 
 /* tell system call handler */
 static void
 tell_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
+  /* David driving */
+  /*TODO TEST TELL */
+  int *fd_ptr = (int *)(f->esp + 4);
+  struct file *file;
   printf ("tell called!\n");
-  thread_exit ();
+  if (!is_valid_ptr (fd_ptr))
+    {
+      printf ("invalid memory access from tell syscall");
+      thread_exit ();
+    }
+  if (*fd_ptr <= 1)
+    {
+      printf ("not a valid file to tell");
+      thread_exit ();
+    }
+  file = thread_current ()->open_files[*fd_ptr];
+  if (file == NULL)
+    {
+      printf ("file not in thread's fd");
+      thread_exit ();
+    }
+  file_tell (file);
 }
 
 /* close file system handler */
