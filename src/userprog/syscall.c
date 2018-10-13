@@ -3,10 +3,9 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-#include "userprog/pagedir.h"
-#include "threads/vaddr.h"
 #include "lib/kernel/console.h"
 #include "filesys/filesys.h"
+#include "threads/synch.h"
 
 /* David driving */
 static void syscall_handler (struct intr_frame *);
@@ -23,11 +22,13 @@ static void write_handler (struct intr_frame *f);
 static void seek_handler (struct intr_frame *f);
 static void tell_handler (struct intr_frame *f);
 static void close_handler (struct intr_frame *f);
-bool is_valid_ptr (void *ptr);
+struct semaphore filesys_sema;
 
 void
 syscall_init (void) 
 {
+  /* Matthew driving */
+  sema_init (&filesys_sema, 1);
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -240,7 +241,8 @@ read_handler (struct intr_frame *f UNUSED)
   
   if (fd == 0)
     {
-      input_getc (); /* read stio and complete */
+      /* Maybe synchronize keyboard input with filesys?? */
+      input_getc (); /* read stdio and complete */
     }
   else if (fd <= 1 || fd >= MAX_OPEN_FILES)
     {
@@ -257,7 +259,11 @@ read_handler (struct intr_frame *f UNUSED)
         }
       else
         {
+          /* Matthew driving */
+          /* synchronize reading/writing */
+          sema_down (&filesys_sema);
           byte_read = file_read (file, buf, *(int *)size_ptr);
+          sema_up (&filesys_sema);
           f->eax = byte_read;
         }
     }
@@ -290,7 +296,11 @@ write_handler (struct intr_frame *f UNUSED)
     {
       if (count > buf_len)
         count = buf_len;
+      /* Matthew driving */
+      /* synchronize reading/writing */
+      sema_down (&filesys_sema);
       putbuf (buf, count);
+      sema_up (&filesys_sema);
       bytes = count;
     }
   else if (fd < 1 || fd >= MAX_OPEN_FILES)
@@ -306,7 +316,11 @@ write_handler (struct intr_frame *f UNUSED)
           // TODO: THREAD EXIT???
           thread_exit ();
         }
+      /* Matthew driving */
+      /* synchronize reading/writing */
+      sema_down (&filesys_sema);
       bytes = file_write (file, buf, count);
+      sema_up (&filesys_sema);
     }
   f->eax = bytes;
 }
@@ -326,7 +340,7 @@ seek_handler (struct intr_frame *f UNUSED)
       printf ("invalid memory access from seek syscall\n");
       thread_exit ();
     }
-  if (*fd_ptr <= 1)
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
     {
       printf ("not a valid file to seek\n");
       thread_exit ();
@@ -354,7 +368,7 @@ tell_handler (struct intr_frame *f UNUSED)
       printf ("invalid memory access from tell syscall");
       thread_exit ();
     }
-  if (*fd_ptr <= 1)
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
     {
       printf ("not a valid file to tell");
       thread_exit ();
@@ -372,8 +386,26 @@ tell_handler (struct intr_frame *f UNUSED)
 static void
 close_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
   printf ("close called!\n");
-  thread_exit ();
+  /* Matthew driving */
+  int *fd_ptr = (int *)(f->esp + 4);
+  struct file *file;
+  if (!is_valid_ptr (fd_ptr))
+    {
+      printf ("invalid memory access from close syscall");
+      thread_exit ();
+    }
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
+    {
+      printf ("not a valid file to close");
+      thread_exit ();
+    }
+  file = thread_current ()->open_files[*fd_ptr];
+  if (file == NULL)
+    {
+      printf ("file not in thread's fd");
+      thread_exit ();
+    }
+  file_close (file);
 }
 

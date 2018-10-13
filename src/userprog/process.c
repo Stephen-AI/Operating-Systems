@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -441,7 +442,7 @@ setup_stack (void **esp, const char *file_name)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        initialize_stack (esp, file_name);
+        success = initialize_stack (esp, file_name);
       else
         palloc_free_page (kpage);
     }
@@ -473,20 +474,32 @@ initialize_stack (void **esp, const char *file_name)
   offset_ptr = offset_str;
   offset_ptr += 4 - (offset_ptr % 4); /* offset to end of word allign */
   offset_ptr += 4 * (argc + 1);       /* offset of argv[0] from top of stack */
-
   void *str_ptr = *esp - offset_str;    /* address of argv[0] */
   void *arg_ptr = *esp - offset_ptr;    /* ponter to address of argv[0] */
+
   /* David drove here */
+  if (!is_valid_ptr (arg_ptr - 4) || !is_valid_ptr (arg_ptr - 8) || 
+      !is_valid_ptr (arg_ptr - 12))
+    {
+      printf ("argument pointer out of page bound\n");
+      return success;
+    }
   memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
   printf("start of argv %p\n", arg_ptr - 4);
   memcpy ((arg_ptr - 8), &argc, sizeof (int));
   printf("argc %d\n", argc);
   memset ((arg_ptr - 12), 0, sizeof (int));
   *esp = arg_ptr - 12;
+
   /* copies the contents of tokenized string array to top of stack
      copies the addresses of each tokenized string to bottom(ish) of stack */
   for (i = 0; i < argc; i++)
     {
+      if (!is_valid_ptr (str_ptr) || !is_valid_ptr (arg_ptr))
+        {
+          printf ("page bound error while copying to user memory\n");
+          return success;
+        }
       memcpy (str_ptr, argv[i], strlen (argv[i]) + 1);
       printf("str %s str addr %p\n", str_ptr, str_ptr);
       memcpy (arg_ptr, &str_ptr, sizeof (str_ptr));
@@ -494,8 +507,13 @@ initialize_stack (void **esp, const char *file_name)
       str_ptr += (strlen (argv[i]) + 1);
       arg_ptr += sizeof (str_ptr);
     }
+  if (!is_valid_ptr (arg_ptr))
+    {
+      printf ("page bound error while null terminating argv array\n");
+      return success;
+    }
   memset (arg_ptr, NULL, sizeof (arg_ptr)); /* adds null ptr at argv[c] */
-
+  hex_dump (*esp, *esp, PHYS_BASE - *esp, true);
   success = true;
   return success;
 }

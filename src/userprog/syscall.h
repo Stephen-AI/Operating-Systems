@@ -1,6 +1,9 @@
 #ifndef USERPROG_SYSCALL_H
 #define USERPROG_SYSCALL_H
 
-void syscall_init (void);
+#include "userprog/pagedir.h"
+#include "threads/vaddr.h"
 
+void syscall_init (void);
+bool is_valid_ptr (void *ptr);
 #endif /* userprog/syscall.h */
