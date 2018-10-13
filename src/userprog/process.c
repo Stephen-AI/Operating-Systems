@@ -20,12 +20,33 @@
 #include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (const char *cmdline, void (**eip) (void), void 
+**esp);
 static bool initialize_stack (void **esp, const char *file_name);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
+
+/*  
+  process_fork (intr_frame, file_name)
+  {
+    copies registers and memory
+    return 0;
+  }
+*/
+/* 
+  int thread
+  hash map in parent
+  pid, struct child (int exit
+  , *child_done_sema, *parent_reaped_sema)
+
+  for wiat() down child_done_sema, get teh exit status, up parent_reaped_sema
+
+  looking for pid, if doesn exist return -1, else down the sema of the child
+
+*/
+
 tid_t
 process_execute (const char *file_name) 
 {
