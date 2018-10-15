@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "synch.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -95,10 +96,19 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
+     /* YunFan driving */
+    int exit;                           /* the exit status */
+    struct semaphore child_done_sema;   /* indicates that the child is exiting*/
+    struct semaphore parent_reap_sema;  /* indicates that the child has been
+                                           reaped */
+    struct list_elem child_elem;        /* List element for children list */
+    struct list children_list;          /* list of children threads */
+
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct file *open_files[MAX_OPEN_FILES];        /* Opened files.   */
+   
 #endif
 
     /* Owned by thread.c. */

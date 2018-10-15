@@ -94,6 +94,7 @@ exit_handler (struct intr_frame *f UNUSED)
       thread_exit ();
     }
   int exit_status = *(int *)(f->esp + 4);
+  thread_current ()->exit = exit_status;
   printf ("exit call with status %d!\n", exit_status);
   thread_exit ();
 }

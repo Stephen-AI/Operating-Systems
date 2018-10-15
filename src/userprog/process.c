@@ -52,16 +52,16 @@ process_execute (const char *file_name)
 {
   char *fn_copy;
   tid_t tid;
-
+  char *exec_name, *save_ptr;
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
-
+  exec_name = strtok_r (file_name, " ", &save_ptr);
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (exec_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
   return tid;
@@ -108,10 +108,33 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  while (1);
-  return -1;
+  struct thread *cur = thread_current ();
+  struct list_elem *e;
+  struct list *child_list = &cur->children_list;
+  struct thread *child = NULL;
+  int status;
+  for (e = list_begin (child_list); e != list_end (child_list); 
+       e = list_next (e))
+    {
+      struct thread *cur_child = list_entry (e, struct thread, child_elem);
+      if (cur_child->tid == child_tid)
+        {
+          child = cur_child;
+          break;
+        }
+    }
+
+    if (child == NULL)
+      return -1;
+    
+    sema_down (&child->child_done_sema);
+    status = child->exit;
+    list_remove (e);
+    sema_up (&child->parent_reap_sema);
+    return status;  
+      
 }
 
 /* Free the current process's resources. */
@@ -120,7 +143,6 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
