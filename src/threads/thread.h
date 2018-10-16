@@ -98,11 +98,14 @@ struct thread
 
      /* YunFan driving */
     int exit;                           /* the exit status */
-    struct semaphore child_done_sema;   /* indicates that the child is exiting*/
-    struct semaphore parent_reap_sema;  /* indicates that the child has been
-                                           reaped */
+    struct semaphore child_done_sema;   /* synchronizes child exiting */
+    struct semaphore parent_reap_sema;  /* synchronizes parent reaping */
     struct list_elem child_elem;        /* List element for children list */
     struct list children_list;          /* list of children threads */
+    /* David driving */
+    struct semaphore child_load_sema;   /* synchronizes file load */
+    bool loaded;                        /* indicates if child loaded file */
+    struct file *user_executable;       /* file user process is executing */
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

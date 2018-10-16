@@ -486,6 +486,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->exit = -1;
   sema_init (&t->child_done_sema, 0);
   sema_init (&t->parent_reap_sema, 0);
+  sema_init (&t->child_load_sema, 0);
+  t->loaded = false;
   list_init (&t->children_list);
 
   old_level = intr_disable();

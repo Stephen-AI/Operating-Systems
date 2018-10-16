@@ -18,34 +18,16 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
+#include "filesys/inode.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void 
-**esp);
+static bool load (const char *cmdline, void (**eip) (void), void **esp);
 static bool initialize_stack (void **esp, const char *file_name);
+static struct thread *find_child (tid_t child_tid);
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
-
-/*  
-  process_fork (intr_frame, file_name)
-  {
-    copies registers and memory
-    return 0;
-  }
-*/
-/* 
-  int thread
-  hash map in parent
-  pid, struct child (int exit
-  , *child_done_sema, *parent_reaped_sema)
-
-  for wiat() down child_done_sema, get teh exit status, up parent_reaped_sema
-
-  looking for pid, if doesn exist return -1, else down the sema of the child
-
-*/
 
 tid_t
 process_execute (const char *file_name) 
@@ -53,6 +35,7 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
   char *exec_name, *save_ptr;
+  struct thread *child;
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -60,10 +43,26 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
   exec_name = strtok_r (file_name, " ", &save_ptr);
+  /* YunFan driving */
+  if (exec_name == NULL)
+    return -1;
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (exec_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (fn_copy);
+  /* David driving */
+  else
+    {
+      child = find_child (tid);
+      if (child == NULL)
+        return -1;
+      sema_down (&child->child_load_sema);
+      if (!child->loaded)
+        {
+          process_wait (tid);
+          tid = -1;
+        }
+    }
   return tid;
 }
 
@@ -75,7 +74,7 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
-
+  struct thread *cur = thread_current ();
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
@@ -83,9 +82,12 @@ start_process (void *file_name_)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
+  cur->loaded = success;
+  sema_up (&cur->child_load_sema);
+
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success)
     thread_exit ();
 
   /* Start the user process by simulating a return from an
@@ -96,6 +98,29 @@ start_process (void *file_name_)
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
+}
+
+/* Finds child thread in parent's list of children, returns NULL if no child
+   with that TID */
+struct thread *
+find_child (tid_t child_tid)
+{
+  /* David, Stephen driving */
+  struct thread *cur = thread_current ();
+  struct list_elem *e;
+  struct list *child_list = &cur->children_list;
+  struct thread *child = NULL;
+  for (e = list_begin (child_list); e != list_end (child_list); 
+       e = list_next (e))
+    {
+      struct thread *cur_child = list_entry (e, struct thread, child_elem);
+      if (cur_child->tid == child_tid)
+        {
+          child = cur_child;
+          break;
+        }
+    }
+  return child;
 }
 
 /* Waits for thread TID to die and returns its exit status.  If
@@ -110,31 +135,18 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid) 
 {
-  struct thread *cur = thread_current ();
-  struct list_elem *e;
-  struct list *child_list = &cur->children_list;
-  struct thread *child = NULL;
+  /* Stephen driving */
+  struct thread *child;
   int status;
-  for (e = list_begin (child_list); e != list_end (child_list); 
-       e = list_next (e))
-    {
-      struct thread *cur_child = list_entry (e, struct thread, child_elem);
-      if (cur_child->tid == child_tid)
-        {
-          child = cur_child;
-          break;
-        }
-    }
-
-    if (child == NULL)
-      return -1;
-    
-    sema_down (&child->child_done_sema);
-    status = child->exit;
-    list_remove (e);
-    sema_up (&child->parent_reap_sema);
-    return status;  
-      
+  child = find_child (child_tid);
+  if (child == NULL)
+    return -1;
+  
+  sema_down (&child->child_done_sema);
+  status = child->exit;
+  list_remove (&child->child_elem);
+  sema_up (&child->parent_reap_sema);
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -159,6 +171,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  /* David driving */
+  file_close (cur->user_executable);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -277,6 +291,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
       goto done; 
     }
 
+  /* David driving */
+  file_deny_write (file);
+
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -295,7 +312,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   for (i = 0; i < ehdr.e_phnum; i++) 
     {
       struct Elf32_Phdr phdr;
-
       if (file_ofs < 0 || file_ofs > file_length (file))
         goto done;
       file_seek (file, file_ofs);
@@ -357,10 +373,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   *eip = (void (*) (void)) ehdr.e_entry;
 
   success = true;
-
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  /* David driving */
+  if (!success)
+    file_close (file);
+  else
+    {
+      t->user_executable = file;
+    }
   return success;
 }
 
@@ -528,9 +549,9 @@ initialize_stack (void **esp, const char *file_name)
       return success;
     }
   memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
-  printf("start of argv %p\n", arg_ptr - 4);
+  // printf("start of argv %p\n", arg_ptr - 4);
   memcpy ((arg_ptr - 8), &argc, sizeof (int));
-  printf("argc %d\n", argc);
+  // printf("argc %d\n", argc);
   memset ((arg_ptr - 12), 0, sizeof (int));
   *esp = arg_ptr - 12;
 
@@ -544,9 +565,9 @@ initialize_stack (void **esp, const char *file_name)
           return success;
         }
       memcpy (str_ptr, argv[i], strlen (argv[i]) + 1);
-      printf("str %s str addr %p\n", str_ptr, str_ptr);
+      // printf("str %s str addr %p\n", str_ptr, str_ptr);
       memcpy (arg_ptr, &str_ptr, sizeof (str_ptr));
-      printf ("arg_ptr addr: %p\n", arg_ptr);
+      // printf ("arg_ptr addr: %p\n", arg_ptr);
       str_ptr += (strlen (argv[i]) + 1);
       arg_ptr += sizeof (str_ptr);
     }
@@ -556,7 +577,7 @@ initialize_stack (void **esp, const char *file_name)
       return success;
     }
   memset (arg_ptr, NULL, sizeof (arg_ptr)); /* adds null ptr at argv[c] */
-  hex_dump (*esp, *esp, PHYS_BASE - *esp, true);
+  // hex_dump (*esp, *esp, PHYS_BASE - *esp, true);
   success = true;
   return success;
 }
