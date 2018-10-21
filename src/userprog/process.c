@@ -56,9 +56,11 @@ process_execute (const char *file_name)
       child = find_child (tid);
       if (child == NULL)
         return -1;
+      /* Wait until child has loaded */
       sema_down (&child->child_load_sema);
       if (!child->loaded)
         {
+          /* Only to reap child's resources */
           process_wait (tid);
           tid = -1;
         }
@@ -80,8 +82,10 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
 
+
+  success = load (file_name, &if_.eip, &if_.esp);
+  /* Indicate to parent whether chlld has loaded succesfully */
   cur->loaded = success;
   sema_up (&cur->child_load_sema);
 
@@ -141,7 +145,7 @@ process_wait (tid_t child_tid)
   child = find_child (child_tid);
   if (child == NULL)
     return -1;
-  
+  /* Wait for child to finish, read the exit status, then reap child */
   sema_down (&child->child_done_sema);
   status = child->exit;
   list_remove (&child->child_elem);
@@ -155,6 +159,14 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+  /* David driving */
+  struct file **open_files = cur->open_files;
+  int i;
+  /* close any files opened by current process */
+  sema_down (&filesys_sema);
+  for (i = 2; i < MAX_OPEN_FILES; i++)
+    file_close (open_files[i]);
+  sema_up (&filesys_sema);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -172,7 +184,9 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   /* David driving */
+  sema_down (&filesys_sema);
   file_close (cur->user_executable);
+  sema_up (&filesys_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -284,6 +298,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
   
   /* Open executable file. */
+  sema_down (&filesys_sema);
   file = filesys_open (exec_name);
   if (file == NULL) 
     {
@@ -382,6 +397,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     {
       t->user_executable = file;
     }
+  sema_up (&filesys_sema);
   return success;
 }
 
@@ -549,11 +565,15 @@ initialize_stack (void **esp, const char *file_name)
       return success;
     }
   memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
-  // printf("start of argv %p\n", arg_ptr - 4);
   memcpy ((arg_ptr - 8), &argc, sizeof (int));
-  // printf("argc %d\n", argc);
   memset ((arg_ptr - 12), 0, sizeof (int));
   *esp = arg_ptr - 12;
+
+  if (PHYS_BASE - *esp > PGSIZE)
+    {
+      printf ("argument pointer out of page bound\n");
+      return false;
+    }
 
   /* copies the contents of tokenized string array to top of stack
      copies the addresses of each tokenized string to bottom(ish) of stack */
@@ -565,9 +585,7 @@ initialize_stack (void **esp, const char *file_name)
           return success;
         }
       memcpy (str_ptr, argv[i], strlen (argv[i]) + 1);
-      // printf("str %s str addr %p\n", str_ptr, str_ptr);
       memcpy (arg_ptr, &str_ptr, sizeof (str_ptr));
-      // printf ("arg_ptr addr: %p\n", arg_ptr);
       str_ptr += (strlen (argv[i]) + 1);
       arg_ptr += sizeof (str_ptr);
     }
@@ -576,8 +594,8 @@ initialize_stack (void **esp, const char *file_name)
       printf ("page bound error while null terminating argv array\n");
       return success;
     }
-  memset (arg_ptr, NULL, sizeof (arg_ptr)); /* adds null ptr at argv[c] */
-  // hex_dump (*esp, *esp, PHYS_BASE - *esp, true);
+  /* adds null ptr at argv[c] */
+  memset (arg_ptr, NULL, sizeof (arg_ptr)); 
   success = true;
   return success;
 }

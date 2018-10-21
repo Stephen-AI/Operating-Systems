@@ -294,6 +294,7 @@ thread_exit (void)
   /* YunFan driving */
 
   printf ("%s: exit(%d)\n", thread_current ()->name, thread_current ()->exit);
+  /* Signal to children that they have been orphaned */
   while (!list_empty (child_list))
     {
       struct thread *child = list_entry (list_pop_front (child_list),
@@ -301,7 +302,9 @@ thread_exit (void)
       /* Stephen driving */
       sema_up (&child->parent_reap_sema);
     }
-    
+  
+  /* Signal to parent that the process has exited, and wait until parent 
+     gets exit status or dies */
   sema_up (&thread_current ()->child_done_sema);
   sema_down (&thread_current ()->parent_reap_sema);
   /* Remove thread from all threads list, set our status to dying,

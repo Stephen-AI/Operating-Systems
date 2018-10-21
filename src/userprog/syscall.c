@@ -5,8 +5,12 @@
 #include "threads/thread.h"
 #include "lib/kernel/console.h"
 #include "filesys/filesys.h"
-#include "threads/synch.h"
 #include "lib/user/syscall.h"
+#include "devices/shutdown.h"
+#include <string.h>
+#include "userprog/process.h"
+#include "filesys/file.h"
+#include "devices/input.h"
 
 /* David driving */
 static void syscall_handler (struct intr_frame *);
@@ -23,9 +27,38 @@ static void write_handler (struct intr_frame *f);
 static void seek_handler (struct intr_frame *f);
 static void tell_handler (struct intr_frame *f);
 static void close_handler (struct intr_frame *f);
-/* Taken from the in class example for readers & writers */
-struct semaphore filesys_sema;
+static bool is_valid_str (char *str);
 
+/* check if a string is in valid memory*/
+bool 
+is_valid_str (char *str)
+{
+  /* YunFan is driving*/
+  struct thread *cur = thread_current ();
+  uint32_t *page = lookup_page (cur->pagedir, str, false);
+  void *upper = pg_round_up (str);
+  
+  if (!is_user_vaddr (str) || page == NULL)
+    return false;
+
+  while (*str != '\0')
+    {
+      if (!is_user_vaddr (str))
+        return false;
+      else if (str <= upper)
+        str++;  
+    /* when the string exceeds a page boundary check if it's in the next page*/
+      else
+        {
+          page = lookup_page (cur->pagedir, str, false);
+          if (!is_user_vaddr (str) || page == NULL)
+            return false;
+          else 
+            upper = pg_round_up (str);
+        }
+    }
+  return true;
+}
 
 void
 syscall_init (void) 
@@ -81,9 +114,8 @@ syscall_handler (struct intr_frame *f)
 static void
 halt_handler (struct intr_frame *f UNUSED)
 {
-  /* Stephen driving */
-  // printf ("halt called!\n");
-  thread_exit ();
+  /* Matthew driving */
+  shutdown_power_off ();
 }
 
 /* exit system call handler */
@@ -91,11 +123,12 @@ static void
 exit_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
+  int exit_status;
+
   if (!is_valid_ptr (f->esp + 4))
-    {
-      thread_exit ();
-    }
-  int exit_status = *(int *)(f->esp + 4);
+    thread_exit ();
+  
+  exit_status = *(int *)(f->esp + 4);
   thread_current ()->exit = exit_status;
   thread_exit ();
 }
@@ -106,19 +139,16 @@ exec_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
   void *file_ptr = f->esp + 4;
-  /*TODO stop dereferencing stack pointer before checking validity */
-  char *buf;
+  char *buf, s[128];
 
   if (!is_valid_ptr (file_ptr))
-    {
-      thread_exit ();
-    }
+    thread_exit ();
+
   buf = *((char **) f->esp + 1);
-  if (!is_valid_ptr (buf))
-    {
-      thread_exit ();
-    }
-  char s[128];
+  if (!is_valid_str (buf))
+    thread_exit ();
+  
+  /* copy the name of the file being exec'd into s from buf */
   strlcpy (s, buf, strlen (buf) + 1);
   f->eax = process_execute (s);
 }
@@ -129,15 +159,11 @@ wait_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
   if (!is_valid_ptr (f->esp + 4))
-    {
-      thread_exit ();
-    }
+    thread_exit ();
   pid_t child_pid = *(pid_t *)(f->esp + 4);
 
   if (child_pid > 0)
-    {
-      f->eax = process_wait (child_pid);
-    }
+    f->eax = process_wait (child_pid);
 }
 
 /* create file system call handler */
@@ -146,14 +172,15 @@ create_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
   void *size_ptr = f->esp + 8;
-  /*TODO stop dereferencing stack pointer before checking validity */
-  char *buf = *((char **) f->esp + 1);
-  if (!is_valid_ptr (size_ptr) || !is_valid_ptr (buf))
-    {
-      thread_exit ();
-    }
-  bool success = filesys_create (buf, *(int *)size_ptr);
-  f->eax = success;
+  char **buf = ((char **) f->esp + 1);
+  if (!is_valid_ptr (size_ptr))
+    thread_exit ();
+  if (!is_valid_str (*buf))
+    thread_exit ();
+
+  sema_down (&filesys_sema);
+  f->eax = filesys_create (*buf, *(int *)size_ptr);
+  sema_up (&filesys_sema);
 }
 
 /* remove file system call handler */
@@ -163,12 +190,14 @@ remove_handler (struct intr_frame *f UNUSED)
   /* Stephen driving */
   void *file_name_ptr = f->esp + 4;
   char **file_name = (char **)file_name_ptr;
-  if (!is_valid_ptr (file_name_ptr) || !is_valid_ptr (*file_name))
-    {
-      thread_exit ();
-    }
+  if (!is_valid_ptr (file_name_ptr))
+    thread_exit ();
   
+  if (!is_valid_str (*file_name))
+    thread_exit ();
+  sema_down (&filesys_sema);
   f->eax = filesys_remove (*file_name);
+  sema_up (&filesys_sema);
 }
 
 /* open file system call handler */
@@ -178,28 +207,33 @@ open_handler (struct intr_frame *f UNUSED)
   /* David driving */
   void *file_ptr = f->esp + 4;
   /*TODO stop dereferencing stack pointer before checking validity */  
-  char *buf = *((char **) f->esp + 1);
+  char **buf = ((char **) f->esp + 1);
   struct file *file;
   int fd;
-  if (!is_valid_ptr (file_ptr) || !is_valid_ptr (buf))
-    {
-      thread_exit ();
-    }
+
+  if (!is_valid_ptr (file_ptr))
+    thread_exit ();
+  if (!is_valid_str (*buf))
+    thread_exit ();
+
   struct thread *cur = thread_current ();
   /* check if the file is in the file system
-     if it is in the file system, look for a fd number for the file*/
-  if ((file = filesys_open (buf)) != NULL) 
+     if it is in the file system, look for a fd number for the file */
+  sema_down (&filesys_sema);
+  if ((file = filesys_open (*buf)) != NULL) 
     {
-      for (fd = 3; fd < MAX_OPEN_FILES; fd++)
+      for (fd = 2; fd < MAX_OPEN_FILES; fd++)
         {
           if (cur->open_files[fd] == NULL)
             {
               cur->open_files[fd] = file;
               f->eax = fd;
+              sema_up (&filesys_sema);
               return;
             }
         }
     }
+  sema_up (&filesys_sema);
   f->eax = -1;
 }
 
@@ -208,11 +242,9 @@ static void
 filesize_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
-  int *fd_ptr = (int *)(f->esp + 4), file_size; 
+  int *fd_ptr = (int *)(f->esp + 4); 
   if (!is_valid_ptr (fd_ptr))
-    {
-      thread_exit ();
-    }
+    thread_exit ();
 
   int fd = *fd_ptr;
 
@@ -231,8 +263,9 @@ filesize_handler (struct intr_frame *f UNUSED)
         }
       else
         {
-          file_size = file_length (file);
-          f->eax = file_size;
+          sema_down (&filesys_sema);
+          f->eax = file_length (file);
+          sema_up (&filesys_sema);
         }
     }
 }
@@ -244,15 +277,14 @@ read_handler (struct intr_frame *f UNUSED)
 {
   /* YunFan driving */
   void *size_ptr = f->esp + 12;
-  /*TODO stop dereferencing stack pointer before checking validity */  
-  char *buf = *((char **) (f->esp + 8));
+  char **buf = ((char **) (f->esp + 8));
+  int fd, byte_read;
+  if (!is_valid_ptr (size_ptr))
+    thread_exit ();
+  if (!is_valid_str (*buf))
+    thread_exit ();
 
-  if (!is_valid_ptr (size_ptr) || !is_valid_ptr (buf))
-    {
-      thread_exit ();
-    }
-
-  int fd = *(int *)(f->esp + 4), byte_read; 
+  fd = *(int *)(f->esp + 4);
   
   if (fd == 0)
     {
@@ -277,7 +309,7 @@ read_handler (struct intr_frame *f UNUSED)
           /* Stephen driving */
           /* synchronize reading/writing */
           sema_down (&filesys_sema);
-          byte_read = file_read (file, buf, *(int *)size_ptr);
+          byte_read = file_read (file, *buf, *(int *)size_ptr);
           sema_up (&filesys_sema);
           f->eax = byte_read;
         }
@@ -293,42 +325,36 @@ write_handler (struct intr_frame *f UNUSED)
   /*TODO stop dereferencing stack pointer before checking validity */ 
   int fd, bytes, buf_len, count;
   struct file *file;
+  char **buf = ((char **) (f->esp + 8));
   if (!is_valid_ptr (count_ptr))
-    {
-      thread_exit ();
-    }
-  char *buf = *((char **) (f->esp + 8));
-  if (!is_valid_ptr (buf))
-    {
-      thread_exit ();
-    }
+    thread_exit ();
+  if (!is_valid_ptr (*buf))
+    thread_exit ();
   fd = *(int *)(f->esp + 4);
-  buf_len = strlen (buf);
+  buf_len = strlen (*buf);
   count = *((int *) count_ptr);
   if (fd == 1)
     {
       if (count > buf_len)
         count = buf_len;
-      putbuf (buf, count);
+      putbuf (*buf, count);
       bytes = count;
     }
   else if (fd < 1 || fd >= MAX_OPEN_FILES)
-    {
-      bytes = 0;
-    }
+    bytes = 0;
   else
     {
       file = thread_current ()->open_files[fd];
       if (file == NULL)
-        {
-          // TODO: THREAD EXIT???
-          thread_exit ();
-        }
+        bytes = -1;
       /* Matthew driving */
       /* synchronize reading/writing */
-      sema_down (&filesys_sema);
-      bytes = file_write (file, buf, count);
-      sema_up (&filesys_sema);
+      else 
+        {
+          sema_down (&filesys_sema);
+          bytes = file_write (file, *buf, count);
+          sema_up (&filesys_sema);
+        }
     }
   f->eax = bytes;
 }
@@ -342,19 +368,18 @@ seek_handler (struct intr_frame *f UNUSED)
   int *fd_ptr = (int *)(f->esp + 4);
   struct file *file;
   if (!is_valid_ptr (pos_ptr))
-    {
       thread_exit ();
-    }
-  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES);
+  else
     {
-      thread_exit ();
+      file = thread_current ()->open_files[*fd_ptr];
+      if (file != NULL)
+        {
+          sema_down (&filesys_sema);
+          file_seek (file, *pos_ptr);
+          sema_up (&filesys_sema);
+        }
     }
-  file = thread_current ()->open_files[*fd_ptr];
-  if (file == NULL)
-    {
-      thread_exit ();
-    }
-  file_seek (file, *pos_ptr);
 }
 
 /* tell system call handler */
@@ -365,19 +390,21 @@ tell_handler (struct intr_frame *f UNUSED)
   int *fd_ptr = (int *)(f->esp + 4);
   struct file *file;
   if (!is_valid_ptr (fd_ptr))
-    {
-      thread_exit ();
-    }
+    thread_exit ();
   if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
+    f->eax = -1;
+  else
     {
-      thread_exit ();
+      file = thread_current ()->open_files[*fd_ptr];
+      if (file == NULL)
+        f->eax = -1;
+      else
+        {
+          sema_down (&filesys_sema);
+          f->eax = file_tell (file);
+          sema_up (&filesys_sema);
+        }
     }
-  file = thread_current ()->open_files[*fd_ptr];
-  if (file == NULL)
-    {
-      thread_exit ();
-    }
-  file_tell (file);
 }
 
 /* close file system handler */
@@ -388,20 +415,16 @@ close_handler (struct intr_frame *f UNUSED)
   int *fd_ptr = (int *)(f->esp + 4);
   struct file *file;
   if (!is_valid_ptr (fd_ptr))
+    thread_exit ();
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES);
+  else
     {
-      thread_exit ();
+      file = thread_current ()->open_files[*fd_ptr];
+      /* remove file from list of open files */
+      thread_current ()->open_files[*fd_ptr] = NULL;
+      sema_down (&filesys_sema);
+      file_close (file);
+      sema_up (&filesys_sema);
     }
-  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
-    {
-      thread_exit ();
-    }
-  file = thread_current ()->open_files[*fd_ptr];
-  /* remove file from list of open files */
-  thread_current ()->open_files[*fd_ptr] = NULL;
-  if (file == NULL || file < 3)
-    {
-      thread_exit ();
-    }
-  file_close (file);
 }
 
