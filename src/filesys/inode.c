@@ -9,15 +9,22 @@
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
-
+#define DIRECT_LIMIT 5120             /* upper limit for direct block access */
+#define FIRST_LEVEL_LIMIT 70656       /* upper limit for first level block   */
+#define SECOND_LEVEL_LIMIT 8459264    /* upper limit for second level block  */
+#define FIRST_LEVEL_SIZE (BLOCK_SECTOR_SIZE * 
+                         (BLOCK_SECTOR_SIZE / 
+                         sizeof (block_sector_t)))
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
-    block_sector_t start;               /* First data sector. */
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
-    uint32_t unused[125];               /* Not used. */
+    block_sector_t direct_blocks[10];   /* Direct data blocks */
+    block_sector_t first_level;         /* 1st level indirection block */
+    block_sector_t second_level;        /* 2nd level indirection block */
+    uint32_t unused[114];               /* Not used. */
   };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -46,9 +53,53 @@ struct inode
 static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
+  /* David driving */
+  block_sector_t *first_level = NULL;
+  block_sector_t *second_level = NULL;
   ASSERT (inode != NULL);
-  if (pos < inode->data.length)
-    return inode->data.start + pos / BLOCK_SECTOR_SIZE;
+  struct inode_disk data = inode->data;
+  int first_ind, second_ind;
+  if (pos < data.length)
+    {
+      /* position in file is less than number of bytes contained in direct
+         blocks, index directly into direct blocks */
+      if (pos < DIRECT_LIMIT)
+        return data.direct_blocks[pos / BLOCK_SECTOR_SIZE];
+      /* position is less than number of bytes contained in first level of
+         indirection, calculate where to index into first level of indirection,
+         and index directly into it after reading in the first level */
+      else if (pos < FIRST_LEVEL_LIMIT)
+        {
+          first_ind = (pos - DIRECT_LIMIT) / BLOCK_SECTOR_SIZE;
+          ASSERT (data.first_level != 0);
+          first_level = palloc_get_page (PAL_ZERO);
+          ASSERT (first_level != NULL);
+          block_read (fs_device, data.first_level, first_level);
+          return first_level[first_ind];
+        }
+      /* position is in second level of indirection */
+      else
+        {
+          /* calculate which first level block in the second level of 
+             indirection contains pos */
+          second_ind = (pos - FIRST_LEVEL_LIMIT) / FIRST_LEVEL_SIZE;
+          ASSERT (data.second_level != 0);
+          /* read in second level block */
+          second_level = palloc_get_page (PAL_ZERO);
+          ASSERT (second_level != NULL);
+          block_read (fs_device, data.second_level, second_level);
+          ASSERT (second_level[second_ind] != 0);
+          first_level = palloc_get_page (PAL_ZERO);
+          ASSERT (first_level != NULL);
+          /* read in the first level block that contains data */
+          block_read (fs_device, second_level[second_ind], first_level);
+          /* return sector number of file position in first level of 
+             indirection */
+          first_ind = (pos - FIRST_LEVEL_LIMIT - FIRST_LEVEL_SIZE * second_ind)
+                      / BLOCK_SECTOR_SIZE;
+          return first_level[first_ind];
+        }
+    }
   else
     return -1;
 }
@@ -87,6 +138,7 @@ inode_create (block_sector_t sector, off_t length)
       size_t sectors = bytes_to_sectors (length);
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
+      /* Stephen driving */
       if (free_map_allocate (sectors, &disk_inode->start)) 
         {
           block_write (fs_device, sector, disk_inode);
@@ -125,6 +177,7 @@ inode_open (block_sector_t sector)
           return inode; 
         }
     }
+
 
   /* Allocate memory. */
   inode = malloc (sizeof *inode);
