@@ -6,25 +6,25 @@
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
+#include "threads/palloc.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
 #define DIRECT_LIMIT 5120             /* upper limit for direct block access */
 #define FIRST_LEVEL_LIMIT 70656       /* upper limit for first level block   */
 #define SECOND_LEVEL_LIMIT 8459264    /* upper limit for second level block  */
-#define FIRST_LEVEL_SIZE (BLOCK_SECTOR_SIZE * 
-                         (BLOCK_SECTOR_SIZE / 
-                         sizeof (block_sector_t)))
+#define FIRST_LEVEL_SIZE (BLOCK_SECTOR_SIZE * (BLOCK_SECTOR_SIZE / 4))
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
+    block_sector_t start;
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
     block_sector_t direct_blocks[10];   /* Direct data blocks */
     block_sector_t first_level;         /* 1st level indirection block */
     block_sector_t second_level;        /* 2nd level indirection block */
-    uint32_t unused[114];               /* Not used. */
+    uint32_t unused[113];               /* Not used. */
   };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -54,28 +54,31 @@ static block_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   /* David driving */
-  block_sector_t *first_level = NULL;
-  block_sector_t *second_level = NULL;
+  block_sector_t *first_level, *second_level, retval;
   ASSERT (inode != NULL);
-  struct inode_disk data = inode->data;
+  struct inode_disk disk_data = inode->data;
   int first_ind, second_ind;
-  if (pos < data.length)
+  first_level = NULL;
+  second_level = NULL;
+  if (pos < disk_data.length)
     {
       /* position in file is less than number of bytes contained in direct
          blocks, index directly into direct blocks */
       if (pos < DIRECT_LIMIT)
-        return data.direct_blocks[pos / BLOCK_SECTOR_SIZE];
+        return disk_data.direct_blocks[pos / BLOCK_SECTOR_SIZE];
       /* position is less than number of bytes contained in first level of
          indirection, calculate where to index into first level of indirection,
          and index directly into it after reading in the first level */
       else if (pos < FIRST_LEVEL_LIMIT)
         {
           first_ind = (pos - DIRECT_LIMIT) / BLOCK_SECTOR_SIZE;
-          ASSERT (data.first_level != 0);
+          ASSERT (disk_data.first_level != 0);
           first_level = palloc_get_page (PAL_ZERO);
           ASSERT (first_level != NULL);
-          block_read (fs_device, data.first_level, first_level);
-          return first_level[first_ind];
+          block_read (fs_device, disk_data.first_level, first_level);
+          retval = first_level[first_ind];
+          palloc_free_page (first_level);
+          return retval;
         }
       /* position is in second level of indirection */
       else
@@ -83,21 +86,24 @@ byte_to_sector (const struct inode *inode, off_t pos)
           /* calculate which first level block in the second level of 
              indirection contains pos */
           second_ind = (pos - FIRST_LEVEL_LIMIT) / FIRST_LEVEL_SIZE;
-          ASSERT (data.second_level != 0);
+          ASSERT (disk_data.second_level != 0);
           /* read in second level block */
           second_level = palloc_get_page (PAL_ZERO);
           ASSERT (second_level != NULL);
-          block_read (fs_device, data.second_level, second_level);
+          block_read (fs_device, disk_data.second_level, second_level);
           ASSERT (second_level[second_ind] != 0);
           first_level = palloc_get_page (PAL_ZERO);
           ASSERT (first_level != NULL);
           /* read in the first level block that contains data */
           block_read (fs_device, second_level[second_ind], first_level);
+          palloc_free_page (second_level);
           /* return sector number of file position in first level of 
              indirection */
           first_ind = (pos - FIRST_LEVEL_LIMIT - FIRST_LEVEL_SIZE * second_ind)
                       / BLOCK_SECTOR_SIZE;
-          return first_level[first_ind];
+          retval = first_level[first_ind];
+          palloc_free_page (first_level);
+          return retval;
         }
     }
   else
