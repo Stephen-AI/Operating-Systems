@@ -32,7 +32,20 @@ struct inode_disk
 static inline size_t
 bytes_to_sectors (off_t size)
 {
-  return DIV_ROUND_UP (size, BLOCK_SECTOR_SIZE);
+  /* David driving */
+  size_t extra_sectors, remaining_bytes = 0;
+  if (size < DIRECT_LIMIT);
+  else if (size < FIRST_LEVEL_LIMIT)
+    extra_sectors = 1;
+  else
+    {
+      /* one sector for first level, one sector for second, and then calculate
+         number of sectors allocated for first level blocks in second level */
+      extra_sectors = 2;
+      remaining_bytes = size - FIRST_LEVEL_LIMIT;
+      extra_sectors += DIV_ROUND_UP (remaining_bytes, FIRST_LEVEL_SIZE);
+    }
+  return DIV_ROUND_UP (size, BLOCK_SECTOR_SIZE) + extra_sectors;
 }
 
 /* In-memory inode. */
