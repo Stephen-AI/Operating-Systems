@@ -19,7 +19,7 @@ free_map_init (void)
   bitmap_mark (free_map, ROOT_DIR_SECTOR);
 }
 
-/* Allocates CNT consecutive sectors from the free map and stores
+/* Allocates CNT non-contiguous sectors from the free map and stores
    the first into *SECTORP.
    Returns true if successful, false if not enough consecutive
    sectors were available or if the free_map file could not be
@@ -27,25 +27,48 @@ free_map_init (void)
 bool
 free_map_allocate (size_t cnt, block_sector_t *sectorp)
 {
-  block_sector_t sector = bitmap_scan_and_flip (free_map, 0, cnt, false);
-  if (sector != BITMAP_ERROR
-      && free_map_file != NULL
+  /* YunFan driving */
+  bool success = true;
+  block_sector_t sector;
+  size_t i, j;
+  for (i = 0; i < cnt; i++)
+    {
+      sector = bitmap_scan_and_flip (free_map, 0, 1, false);
+      if (sector == BITMAP_ERROR)
+      {
+        for (j = 0; j < i; j++)
+          {
+            ASSERT (bitmap_test (free_map, sectorp[j]));
+            bitmap_flip (free_map, sectorp[j]);
+          } 
+        return false;
+      }
+      sectorp[i] = sector; 
+    }
+  if (free_map_file != NULL
       && !bitmap_write (free_map, free_map_file))
     {
-      bitmap_set_multiple (free_map, sector, cnt, false); 
-      sector = BITMAP_ERROR;
+      for (j = 0; j < i; j++)
+        {
+          ASSERT (bitmap_test (free_map, sectorp[j]));
+          bitmap_flip (free_map, sectorp[j]);
+        }
+      success = false;
     }
-  if (sector != BITMAP_ERROR)
-    *sectorp = sector;
-  return sector != BITMAP_ERROR;
+  return success;
 }
 
 /* Makes CNT sectors starting at SECTOR available for use. */
 void
-free_map_release (block_sector_t sector, size_t cnt)
+free_map_release (block_sector_t *sectorp, size_t cnt)
 {
-  ASSERT (bitmap_all (free_map, sector, cnt));
-  bitmap_set_multiple (free_map, sector, cnt, false);
+  /* YunFan driving */
+  size_t i;
+  for (i = 0; i < cnt; i++)
+    {  
+      ASSERT (bitmap_test (free_map, sectorp[i]));
+      bitmap_flip (free_map, sectorp[i]);
+    }
   bitmap_write (free_map, free_map_file);
 }
 
