@@ -258,7 +258,7 @@ inode_create (block_sector_t sector, off_t length)
                   if ((first_level = allocate_first_level (sectors_alloc)))
                     {
                       second_level[i] = first_level;
-                      sectors -= 128;
+                      sectors -= 128; /* TODO: Redundant */
                     }
                   else
                     {
@@ -273,6 +273,8 @@ inode_create (block_sector_t sector, off_t length)
             }
         }
     }
+
+  /* TODO: This block should be inside if (disk_inode != NULL) */
   if (!success)
     {
       inode_free_sectors (disk_inode);
@@ -317,6 +319,7 @@ allocate_first_level (size_t sectors_to_allocate)
   return retval;
 }
 
+/* TODO: implement*/
 static void
 inode_free_sectors (struct inode_disk *disk_inode)
 {
