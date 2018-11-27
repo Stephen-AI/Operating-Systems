@@ -180,6 +180,72 @@ inode_init (void)
 //   return success;
 // }
 
+bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t end)
+{
+  ASSERT (disk_inode != NULL);
+  ASSERT (start <= end);
+  bool success = true;
+  static char zeros[BLOCK_SECTOR_SIZE];
+  block_sector_t *first_level, *second_level, sec_start, sec_end, sec_alloc;
+  sec_start = bytes_to_sectors (start);
+  sec_end = bytes_to_sectors (end);
+  if (sec_start != 0)
+    sec_start += 1;
+
+  if (sec_start < 10 && sec_start < sec_end)
+    {
+      sec_alloc = sec_end > 10 ? 10 - sec_start : sec_end - sec_start;
+      if (free_map_allocate (sectors_alloc, 
+                             disk_inode->direct_blocks[sec_start]))
+        {
+          disk_inode->sectors_allocated += sec_alloc;
+          for (sec_start; sec_start < sec_start + sectors_alloc; sec_start++)
+            block_write (fs_device, disk_inode->direct_blocks[sec_start], zeros);
+        }
+      else
+        {
+          success = false;
+        }
+    }
+  if (success && 
+      sec_start < bytes_to_sectors (FIRST_LEVEL_LIMIT) && 
+      sec_start < sec_end)
+    {
+      sec_alloc = sec_end > 138 ? 128 - sec_start : sec_end - sec_start;
+      if (disk_inode->first_level == 0)
+        {
+          if ((*first_level = allocate_first_level (sec_alloc)))
+            {
+              disk_inode->sectors_allocated += sec_alloc;
+              disk_inode->first_level = *first_level;
+            }
+          else
+            {
+              success = false;
+            }
+        }
+      else
+        {
+          first_level = palloc_get_page (PAL_ZERO);
+          ASSERT (first_level != NULL);
+          block_read (fs_device, disk_inode->first_level, first_level);
+          if (free_map_allocate (sec_alloc, first_level + sec_start))
+            {
+              for (sec_start; sec_start < sec_start + sec_alloc; sec_start++)
+                {
+                  block_write (fs_device, first_level[sec_start], zeros);
+                }
+              disk_inode->sectors_allocated += sec_alloc;
+            }
+          else
+            {
+              success = false;
+            }
+        }
+      sec_start += sec_alloc;
+    }
+}
+
 bool
 inode_create (block_sector_t sector, off_t length)
 {
