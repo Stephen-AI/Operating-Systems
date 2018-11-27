@@ -18,7 +18,7 @@
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
-    block_sector_t start;
+    size_t sectors_allocated;           /* # of sectors allocated to file */
     off_t length;                       /* File size in bytes. */
     unsigned magic;                     /* Magic number. */
     block_sector_t direct_blocks[10];   /* Direct data blocks */
@@ -202,20 +202,24 @@ inode_create (block_sector_t sector, off_t length)
       size_t sectors = bytes_to_sectors (length);
       disk_inode->length = length;
       disk_inode->magic = INODE_MAGIC;
-      
+      disk_inode->sectors_allocated = 0;
       /* first, allocate up to 10 sectors for the direct blocks */
       if (sectors > 0)
         {
           sectors_alloc = sectors >= 10 ? 10 : sectors;
           if (free_map_allocate (sectors_alloc, disk_inode->direct_blocks))
             {
+              disk_inode->sectors_allocated += sectors_alloc;
               for (i = 0; i < sectors_alloc; i++)
                 {
                   block_write (fs_device, disk_inode->direct_blocks[i], zeros);
                 }
             }
           else
-            success = false;
+            {
+              ASSERT (false);
+              success = false;
+            }
           sectors -= 10;           
         }
       /* if direct block allocation succeeded, and remaining sectors > 0,
@@ -224,14 +228,16 @@ inode_create (block_sector_t sector, off_t length)
       if (sectors > 0 && success)
         {
           sectors_alloc = sectors >= 128 ? 128 : sectors;
-          if (!(first_level = allocate_first_level (sectors_alloc)))
+          if ((first_level = allocate_first_level (sectors_alloc)))
             {
-              success = false;
+              disk_inode->sectors_allocated += sectors_alloc;
+              sectors -= 128;
+              disk_inode->first_level = first_level;
             }
           else
             {
-              sectors -= 128;
-              disk_inode->first_level = first_level;
+              ASSERT (false);
+              success = false;
             }
         }
       
@@ -257,11 +263,13 @@ inode_create (block_sector_t sector, off_t length)
                   sectors_alloc = sectors >= 128 ? 128 : sectors;
                   if ((first_level = allocate_first_level (sectors_alloc)))
                     {
+                      disk_inode->sectors_allocated += sectors_alloc;
                       second_level[i] = first_level;
-                      sectors -= 128; /* TODO: Redundant */
+                      sectors -= 128; 
                     }
                   else
                     {
+                      ASSERT (false);
                       success = false;
                       break;
                     }
@@ -272,18 +280,20 @@ inode_create (block_sector_t sector, off_t length)
                 block_write (fs_device, second_level[0], second_level + 1);
             }
         }
+
+      if (!success)
+        {
+          inode_free_sectors (disk_inode);
+          free (disk_inode);
+        }
+      else
+        {
+          ASSERT (disk_inode->sectors_allocated == bytes_to_sectors (length));
+          block_write (fs_device, sector, disk_inode);
+        }
     }
 
-  /* TODO: This block should be inside if (disk_inode != NULL) */
-  if (!success)
-    {
-      inode_free_sectors (disk_inode);
-      free (disk_inode);
-    }
-  else
-    {
-      block_write (fs_device, sector, disk_inode);
-    }
+ 
   return success;
 }
 
@@ -314,18 +324,68 @@ allocate_first_level (size_t sectors_to_allocate)
       retval = first_level[0];
     }
   else
-    retval = 0;
+    {ASSERT (false);
+    retval = 0;}
   palloc_free_page (first_level);
   return retval;
 }
 
-/* TODO: implement*/
+/* Free all sectors allocated to disk_inode */
 static void
 inode_free_sectors (struct inode_disk *disk_inode)
 {
-  ASSERT (false);
+  /* Stephen driving */
+  size_t sectors_to_free = disk_inode->sectors_allocated;
+  size_t count = 0;
+  block_sector_t *first_level = NULL, *second_level = NULL;
+  size_t i;
+
+  count = sectors_to_free >= 10 ? 10 : sectors_to_free;
+  free_map_release (disk_inode->direct_blocks, count);
+  sectors_to_free -= count;
+
+  if (sectors_to_free == 0)
+    return;
+
+  count = sectors_to_free >= 128 ? 128 : sectors_to_free;
+  first_level = palloc_get_page (PAL_ZERO);
+  ASSERT (first_level != NULL);
+
+  block_read (fs_device, disk_inode->first_level, first_level + 1);
+  first_level[0] = disk_inode->first_level;
+  free_map_release (first_level, count + 1);
+  sectors_to_free -= count;
+
+  if (sectors_to_free == 0)
+    {
+      palloc_free_page (first_level);
+      return;
+    }
+
+  second_level = palloc_get_page (PAL_ZERO);
+  ASSERT (second_level != NULL);
+  block_read (fs_device, disk_inode->second_level, second_level);
+  i = 0;
+  while (sectors_to_free > 0)
+    {
+      count = sectors_to_free >= 128 ? 128 : sectors_to_free;
+      block_read (fs_device, second_level[i], first_level + 1);
+      first_level[0] = second_level[i++];
+      free_map_release (first_level, count + 1);
+      sectors_to_free -= count;
+    }
+
+  free_map_release (&disk_inode->second_level, 1);
+  palloc_free_page (first_level);
+  palloc_free_page (second_level);
+
 }
 
+static bool
+free_first_level (size_t cnt)
+{
+  return true;
+}
 /* Reads an inode from SECTOR
    and returns a `struct inode' that contains it.
    Returns a null pointer if memory allocation fails. */
@@ -399,9 +459,9 @@ inode_close (struct inode *inode)
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
-          free_map_release (inode->sector, 1);
-          free_map_release (inode->data.start,
-                            bytes_to_sectors (inode->data.length)); 
+          /* Stephen driving */
+          inode_free_sectors (&inode->data);
+          free_map_release (&inode->sector, 1);
         }
 
       free (inode); 

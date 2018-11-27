@@ -65,7 +65,8 @@ free_map_release (block_sector_t *sectorp, size_t cnt)
   /* YunFan driving */
   size_t i;
   for (i = 0; i < cnt; i++)
-    {  
+    {
+      ASSERT (sectorp[i] > 1);
       ASSERT (bitmap_test (free_map, sectorp[i]));
       bitmap_flip (free_map, sectorp[i]);
     }
