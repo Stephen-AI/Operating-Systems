@@ -220,7 +220,7 @@ inode_create (block_sector_t sector, off_t length)
               ASSERT (false);
               success = false;
             }
-          sectors -= 10;           
+          sectors -= sectors_alloc;           
         }
       /* if direct block allocation succeeded, and remaining sectors > 0,
          allocate up to 128 data blocks and 1 indirect block for the first
@@ -231,7 +231,6 @@ inode_create (block_sector_t sector, off_t length)
           if ((first_level = allocate_first_level (sectors_alloc)))
             {
               disk_inode->sectors_allocated += sectors_alloc;
-              sectors -= 128;
               disk_inode->first_level = first_level;
             }
           else
@@ -239,6 +238,7 @@ inode_create (block_sector_t sector, off_t length)
               ASSERT (false);
               success = false;
             }
+          sectors -= sectors_alloc;
         }
       
       /* if first level allocation succeeded, and there are still sectors left
@@ -265,7 +265,6 @@ inode_create (block_sector_t sector, off_t length)
                     {
                       disk_inode->sectors_allocated += sectors_alloc;
                       second_level[i] = first_level;
-                      sectors -= 128; 
                     }
                   else
                     {
@@ -273,6 +272,7 @@ inode_create (block_sector_t sector, off_t length)
                       success = false;
                       break;
                     }
+                  sectors -= sectors_alloc;
                 }
               /* successfully allocated the right amount of sectors, write 
                  our kpage to the second level sector */
