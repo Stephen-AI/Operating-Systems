@@ -27,6 +27,14 @@ struct inode_disk
     uint32_t unused[113];               /* Not used. */
   };
 
+struct byte_query
+  {
+    off_t direct_block_index;
+    off_t second_level_index;
+    off_t first_level_index;
+    block_sector_t sector;
+  };
+
 static void inode_free_sectors (struct inode_disk *);
 static block_sector_t allocate_first_level (size_t);
 
@@ -65,11 +73,15 @@ struct inode
    within INODE.
    Returns -1 if INODE does not contain data for a byte at offset
    POS. */
-static block_sector_t
+static struct byte_query *
 byte_to_sector (const struct inode *inode, off_t pos) 
 {
   /* David driving */
   block_sector_t *first_level, *second_level, retval;
+  struct byte_query *result = malloc (sizeof (struct byte_query));
+  result->direct_block_index = -1;
+  result->first_level_index = -1;
+  result->second_level_index = -1;
   ASSERT (inode != NULL);
   struct inode_disk disk_data = inode->data;
   int first_ind, second_ind;
@@ -80,20 +92,26 @@ byte_to_sector (const struct inode *inode, off_t pos)
       /* position in file is less than number of bytes contained in direct
          blocks, index directly into direct blocks */
       if (pos < DIRECT_LIMIT)
-        return disk_data.direct_blocks[pos / BLOCK_SECTOR_SIZE];
+        {
+          result->direct_block_index = pos / BLOCK_SECTOR_SIZE;
+          result->sector = disk_data.direct_blocks[pos / BLOCK_SECTOR_SIZE];
+          return result;
+        }
       /* position is less than number of bytes contained in first level of
          indirection, calculate where to index into first level of indirection,
          and index directly into it after reading in the first level */
       else if (pos < FIRST_LEVEL_LIMIT)
         {
           first_ind = (pos - DIRECT_LIMIT) / BLOCK_SECTOR_SIZE;
+          result->first_level_index = first_ind;
           ASSERT (disk_data.first_level != 0);
           first_level = palloc_get_page (PAL_ZERO);
           ASSERT (first_level != NULL);
           block_read (fs_device, disk_data.first_level, first_level);
           retval = first_level[first_ind];
           palloc_free_page (first_level);
-          return retval;
+          result->sector = retval;
+          return result;
         }
       /* position is in second level of indirection */
       else
@@ -101,6 +119,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
           /* calculate which first level block in the second level of 
              indirection contains pos */
           second_ind = (pos - FIRST_LEVEL_LIMIT) / FIRST_LEVEL_SIZE;
+          result->second_level_index = second_ind;
           ASSERT (disk_data.second_level != 0);
           /* read in second level block */
           second_level = palloc_get_page (PAL_ZERO);
@@ -118,11 +137,13 @@ byte_to_sector (const struct inode *inode, off_t pos)
                       / BLOCK_SECTOR_SIZE;
           retval = first_level[first_ind];
           palloc_free_page (first_level);
+          result->first_level_index = first_ind;
+          result->sector = retval;
           return retval;
         }
     }
   else
-    return -1;
+    return NULL;
 }
 
 /* List of open inodes, so that opening a single inode twice
@@ -556,7 +577,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   while (size > 0) 
     {
       /* Disk sector to read, starting byte offset within sector. */
-      block_sector_t sector_idx = byte_to_sector (inode, offset);
+      block_sector_t sector_idx = byte_to_sector (inode, offset) -> sector;
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
@@ -617,7 +638,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   while (size > 0) 
     {
       /* Sector to write, starting byte offset within sector. */
-      block_sector_t sector_idx = byte_to_sector (inode, offset);
+      block_sector_t sector_idx = byte_to_sector (inode, offset)->sector;
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
 
       /* Bytes left in inode, bytes left in sector, lesser of the two. */
