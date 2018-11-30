@@ -261,7 +261,7 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
 }
 
 bool
-inode_create (block_sector_t sector, off_t length)
+inode_create (block_sector_t sector, off_t length, bool dir)
 {
   /* Stephen driving */
   struct inode_disk *disk_inode = NULL;
@@ -290,6 +290,7 @@ inode_create (block_sector_t sector, off_t length)
         {
           ASSERT (disk_inode->sectors_allocated == sectors);
           ASSERT (disk_inode->length == length);
+          disk_inode->isdir = dir;
           block_write (fs_device, sector, disk_inode);
         }
     }
@@ -327,7 +328,7 @@ allocate_second_level (block_sector_t *second_level, off_t first_ind,
 {
   /* YunFan driving */
   bool success = true;
-  off_t i, num_sector, levels;
+  off_t num_sector;
   block_sector_t *first_level = palloc_get_page (PAL_ZERO);
   ASSERT (first_level != NULL);
 
@@ -370,6 +371,7 @@ allocate_second_level (block_sector_t *second_level, off_t first_ind,
 static void
 inode_free_sectors (struct inode_disk *disk_inode)
 {
+  /* TODO: CHANGE INODE FREE SECTORS TO START FROM A CERTAIN POSITION */
   /* Stephen driving */
   size_t sectors_to_free = disk_inode->sectors_allocated;
   size_t count = 0;
@@ -564,6 +566,14 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   free (bounce);
 
   return bytes_read;
+}
+
+/* Determines whether an inode corresponds to a file or to a directory */
+bool
+inode_is_directory (struct inode *inode)
+{
+  ASSERT (inode != NULL);
+  return inode->data.isdir;
 }
 
 /* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.

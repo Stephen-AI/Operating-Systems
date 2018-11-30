@@ -12,11 +12,12 @@ struct inode_disk
   {
     size_t sectors_allocated;           /* # of sectors allocated to file */
     off_t length;                       /* File size in bytes. */
+    bool isdir;                         /* Is this inode for a directory? */
     unsigned magic;                     /* Magic number. */
     block_sector_t direct_blocks[10];   /* Direct data blocks */
     block_sector_t first_level;         /* 1st level indirection block */
     block_sector_t second_level;        /* 2nd level indirection block */
-    uint32_t unused[113];               /* Not used. */
+    uint32_t unused[112];               /* Not used. */
   };
 
 /* In-memory inode. */
@@ -31,7 +32,7 @@ struct inode
   };
 
 void inode_init (void);
-bool inode_create (block_sector_t, off_t);
+bool inode_create (block_sector_t, off_t, bool);
 struct inode *inode_open (block_sector_t);
 struct inode *inode_reopen (struct inode *);
 block_sector_t inode_get_inumber (const struct inode *);
@@ -43,5 +44,5 @@ void inode_deny_write (struct inode *);
 void inode_allow_write (struct inode *);
 off_t inode_length (const struct inode *);
 bool inode_extend (struct inode_disk *, off_t, off_t);
-
+bool inode_is_directory (struct inode *);
 #endif /* filesys/inode.h */

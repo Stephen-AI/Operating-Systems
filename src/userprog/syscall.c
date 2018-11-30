@@ -179,7 +179,7 @@ create_handler (struct intr_frame *f UNUSED)
     thread_exit ();
 
   sema_down (&filesys_sema);
-  f->eax = filesys_create (*buf, *(int *)size_ptr);
+  f->eax = filesys_create (*buf, *(int *)size_ptr, false);
   sema_up (&filesys_sema);
 }
 

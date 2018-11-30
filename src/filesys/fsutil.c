@@ -109,16 +109,18 @@ fsutil_extract (char **argv UNUSED)
           /* End of archive. */
           break;
         }
+      /* TODO: fall into else if type == USTAR_REGULAR || USTAR_DIRECTORY 
       else if (type == USTAR_DIRECTORY)
         printf ("ignoring directory %s\n", file_name);
-      else if (type == USTAR_REGULAR)
+      */
+      else if (type == USTAR_REGULAR || type == USTAR_DIRECTORY)
         {
           struct file *dst;
 
           printf ("Putting '%s' into the file system...\n", file_name);
 
           /* Create destination file. */
-          if (!filesys_create (file_name, size))
+          if (!filesys_create (file_name, size, type == USTAR_DIRECTORY))
             PANIC ("%s: create failed", file_name);
           dst = filesys_open (file_name);
           if (dst == NULL)

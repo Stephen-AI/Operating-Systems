@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "synch.h"
+#include "filesys/directory.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -106,7 +107,7 @@ struct thread
     struct semaphore child_load_sema;   /* synchronizes file load */
     bool loaded;                        /* indicates if child loaded file */
     struct file *user_executable;       /* file user process is executing */
-
+    struct dir *cwd;                    /* thread's current working directory */
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */

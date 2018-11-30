@@ -182,7 +182,10 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-
+  if (thread_current ()->cwd == NULL)
+    t->cwd = dir_open_root ();
+  else
+    t->cwd = dir_reopen (thread_current ()->cwd);
   /* YunFan driving */
   /* to embed the child thread into the parent's children list */ 
   list_push_back (&thread_current ()->children_list, &t->child_elem);
@@ -492,7 +495,7 @@ init_thread (struct thread *t, const char *name, int priority)
   sema_init (&t->child_load_sema, 0);
   t->loaded = false;
   list_init (&t->children_list);
-
+  t->cwd = NULL;
   old_level = intr_disable();
   list_push_back (&all_list, &t->allelem);
   intr_set_level(old_level);
