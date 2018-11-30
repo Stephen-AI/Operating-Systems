@@ -78,14 +78,11 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
   struct thread *cur = thread_current ();
-  if (cur->cwd == NULL)
-    cur->cwd = dir_open_root ();
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-
 
   success = load (file_name, &if_.eip, &if_.esp);
   /* Indicate to parent whether chlld has loaded succesfully */

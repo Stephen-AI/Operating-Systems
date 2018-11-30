@@ -11,6 +11,8 @@
    After directories are implemented, this maximum length may be
    retained, but much longer full path names must be allowed. */
 #define NAME_MAX 14
+/* David driving */
+#define DIR_INIT 8
 
 /* A directory. */
 struct dir 
@@ -19,7 +21,7 @@ struct dir
     off_t pos;                          /* Current position. */
   };
 
-
+block_sector_t get_directory_sector (struct dir *);
 /* Opening and closing directories. */
 bool dir_create (block_sector_t, block_sector_t sector, size_t entry_cnt);
 struct dir *dir_open (struct inode *);

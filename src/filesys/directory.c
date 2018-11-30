@@ -13,6 +13,7 @@ struct dir_entry
     bool in_use;                        /* In use or free? */
   };
 static struct lock *dir_get_lock (struct dir *dir);
+
 /* Gets the directory lock for a struct dir */
 static struct lock *
 dir_get_lock (struct dir *dir)
@@ -21,6 +22,12 @@ dir_get_lock (struct dir *dir)
   return &dir->inode->dir_lock;
 }
 
+block_sector_t
+get_directory_sector (struct dir *dir)
+{
+  ASSERT (dir != NULL);
+  return dir->inode->sector;
+}
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
