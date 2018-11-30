@@ -3,15 +3,7 @@
 #include <string.h>
 #include <list.h>
 #include "filesys/filesys.h"
-#include "filesys/inode.h"
 #include "threads/malloc.h"
-
-/* A directory. */
-struct dir 
-  {
-    struct inode *inode;                /* Backing store. */
-    off_t pos;                          /* Current position. */
-  };
 
 /* A single directory entry. */
 struct dir_entry 
@@ -20,13 +12,29 @@ struct dir_entry
     char name[NAME_MAX + 1];            /* Null terminated file name. */
     bool in_use;                        /* In use or free? */
   };
+static struct lock *dir_get_lock (struct dir *dir);
+/* Gets the directory lock for a struct dir */
+static struct lock *
+dir_get_lock (struct dir *dir)
+{
+  ASSERT (inode_is_directory (dir->inode));
+  return &dir->inode->dir_lock;
+}
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
-dir_create (block_sector_t sector, size_t entry_cnt)
+dir_create (block_sector_t parent_sec, block_sector_t sector, size_t entry_cnt)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry), true);
+  struct dir *cur_dir;
+  if (inode_create (sector, (2 + entry_cnt) * sizeof (struct dir_entry), true))
+    {
+      cur_dir = dir_open (inode_open (sector));
+      dir_add (cur_dir, "..", parent_sec);
+      dir_add (cur_dir, ".", sector);
+    }
+  else
+    return false;
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -34,6 +42,7 @@ dir_create (block_sector_t sector, size_t entry_cnt)
 struct dir *
 dir_open (struct inode *inode) 
 {
+  ASSERT (inode->data.isdir);
   struct dir *dir = calloc (1, sizeof *dir);
   if (inode != NULL && dir != NULL)
     {

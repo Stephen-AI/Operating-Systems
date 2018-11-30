@@ -182,9 +182,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
-  if (thread_current ()->cwd == NULL)
-    t->cwd = dir_open_root ();
-  else
+  if (thread_current ()->cwd != NULL)
     t->cwd = dir_reopen (thread_current ()->cwd);
   /* YunFan driving */
   /* to embed the child thread into the parent's children list */ 

@@ -5,6 +5,7 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 #include <list.h>
+#include "threads/synch.h"
 
 struct bitmap;
 
@@ -24,6 +25,7 @@ struct inode_disk
 struct inode 
   {
     struct list_elem elem;              /* Element in inode list. */
+    struct lock dir_lock;               /* lock for directory */
     block_sector_t sector;              /* Sector number of disk location. */
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */

@@ -426,7 +426,6 @@ inode_open (block_sector_t sector)
 {
   struct list_elem *e;
   struct inode *inode;
-
   /* Check whether this inode is already open. */
   for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
        e = list_next (e)) 
@@ -452,6 +451,8 @@ inode_open (block_sector_t sector)
   inode->deny_write_cnt = 0;
   inode->removed = false;
   block_read (fs_device, inode->sector, &inode->data);
+  if (inode_is_directory (inode))
+    lock_init (&inode->dir_lock);
   return inode;
 }
 
@@ -588,10 +589,14 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
   uint8_t *bounce = NULL;
-
+  off_t inode_len = inode_length (inode);
   if (inode->deny_write_cnt)
     return 0;
-
+  if (offset + size > inode_len)
+    {
+      inode_extend (&inode->data, inode_len, offset + size);
+      ASSERT (inode_length (inode) >= offset + size);
+    }
   while (size > 0) 
     {
       /* Sector to write, starting byte offset within sector. */
