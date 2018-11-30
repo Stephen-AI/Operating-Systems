@@ -28,6 +28,8 @@ filesys_init (bool format)
     do_format ();
 
   free_map_open ();
+  initial_thread->cwd = dir_open_root ();
+  idle_thread->cwd = dir_open_root ();
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -49,7 +51,7 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   struct dir *dir;
   struct thread *cur;
   bool success;
-  dir = dir_open (inode_open (thread_current ()->cwd_sector));
+  dir = dir_reopen (thread_current ()->cwd);
   success = (dir != NULL && free_map_allocate (1, &inode_sector));
   if (success && isdir)
     success = dir_create (get_directory_sector (dir), inode_sector, DIR_INIT) &&

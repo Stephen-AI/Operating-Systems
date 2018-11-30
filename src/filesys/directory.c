@@ -78,6 +78,7 @@ dir_open_root (void)
 struct dir *
 dir_reopen (struct dir *dir) 
 {
+  ASSERT (dir != NULL);
   return dir_open (inode_reopen (dir->inode));
 }
 

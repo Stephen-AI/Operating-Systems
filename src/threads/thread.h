@@ -108,7 +108,7 @@ struct thread
     struct semaphore child_load_sema;   /* synchronizes file load */
     bool loaded;                        /* indicates if child loaded file */
     struct file *user_executable;       /* file user process is executing */
-    block_sector_t cwd_sector;          /* thread's current working directory */
+    struct dir *cwd;                    /* thread's current working directory */
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
