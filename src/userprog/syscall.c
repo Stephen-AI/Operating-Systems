@@ -109,11 +109,11 @@ syscall_handler (struct intr_frame *f)
     case 10: seek_handler (f); break;
     case 11: tell_handler (f); break;
     case 12: close_handler (f); break;
-    case 13: chdir_handler (f); break;
-    case 14: mkdir_handler (f); break;
-    case 15: readdir_handler (f); break;
-    case 16: isdir_handler (f); break;
-    case 17: inumber_handler (f); break;
+    case 15: chdir_handler (f); break;
+    case 16: mkdir_handler (f); break;
+    case 17: readdir_handler (f); break;
+    case 18: isdir_handler (f); break;
+    case 19: inumber_handler (f); break;
     default: 
     printf("System call SYSCALLNO: %d not implemented\n", syscall_no);
     thread_exit ();
@@ -442,12 +442,30 @@ close_handler (struct intr_frame *f UNUSED)
 static void 
 chdir_handler (struct intr_frame *f)
 {
-  printf ("chdir called\n");
+  /* Matthew driving */
+  char **buf = ((char **) f->esp + 1);
+  if (!is_valid_ptr (buf))
+    thread_exit ();
+  if (!is_valid_str (*buf))
+    thread_exit ();
+
+  sema_down (&filesys_sema);
+  f->eax = change_working_directory (*buf);
+  sema_up (&filesys_sema);
 }
 
 static void mkdir_handler (struct intr_frame *f)
 {
-  printf ("mkdir called\n");
+  /* YunFan driving */
+  char **buf = ((char **) f->esp + 1);
+  if (!is_valid_ptr (buf))
+    thread_exit ();
+  if (!is_valid_str (*buf))
+    thread_exit ();
+
+  sema_down (&filesys_sema);
+  f->eax = filesys_create (*buf, 0, true);
+  sema_up (&filesys_sema);
 }
 
 static void readdir_handler (struct intr_frame *f)
@@ -457,7 +475,19 @@ static void readdir_handler (struct intr_frame *f)
 
 static void isdir_handler (struct intr_frame *f)
 {
-  printf ("isdir called\n");
+  /* Stephen driving */
+  int *fd_ptr = (int *)(f->esp + 4);
+  struct file *file;
+  if (!is_valid_ptr (fd_ptr))
+    thread_exit ();
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
+    f->eax = 0;
+  else
+    {
+      file = thread_current ()->open_files[*fd_ptr];
+      /* remove file from list of open files */
+      f->eax = file_isdir (file);
+    }
 }
 
 static void inumber_handler (struct intr_frame *f)

@@ -5,6 +5,8 @@
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
 #include "threads/palloc.h"
+#include "filesys/free-map.h"
+
 /* A single directory entry. */
 struct dir_entry 
   {
@@ -23,11 +25,12 @@ dir_get_lock (struct dir *dir)
 }
 
 block_sector_t
-get_directory_sector (struct dir *dir)
+get_dir_sector (struct dir *dir)
 {
   ASSERT (dir != NULL);
   return dir->inode->sector;
 }
+
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
@@ -43,7 +46,6 @@ dir_create (block_sector_t parent_sec, block_sector_t sector, size_t entry_cnt)
   else
     return false;
 }
-
 
 /* Opens and returns the directory for the given INODE, of which
    it takes ownership.  Returns a null pointer on failure. */
@@ -140,8 +142,8 @@ dir_lookup (const struct dir *dir, const char *name,
   struct dir_entry e;
 
   ASSERT (dir != NULL);
-  ASSERT (name != NULL);
-
+  if (!inode_is_directory (dir->inode))
+    return false;
   if (lookup (dir, name, &e, NULL))
     *inode = inode_open (e.inode_sector);
   else
@@ -150,45 +152,41 @@ dir_lookup (const struct dir *dir, const char *name,
   return *inode != NULL;
 }
 
-
-bool
-path_lookup (struct dir *dir, const char *path, struct inode **inode)
+int
+tokenize_path (char *name, char **argv)
 {
-  char *name = palloc_get_page (PAL_ZERO), *token, *save_ptr;
-  ASSERT (name != NULL);
-  strlcpy (name, path, strlen(path) + 1);
-  char **argv = palloc_get_page (PAL_ZERO);
-  ASSERT (argv != NULL);
-  int i = 0, cur_idx;
-  struct dir *cur_dir = dir;
-
+  int num_tokens = 0;
+  char *save_ptr, *token;
   for (token = strtok_r (name, "/", &save_ptr); token != NULL;
-      token = strtok_r (NULL, "/", &save_ptr))
+       token = strtok_r (NULL, "/", &save_ptr))
     {
-      argv[i++] = token;
+      argv[num_tokens++] = token;
     }
-
-  argv[i] = NULL;
-
-  for (cur_idx = 0; cur_idx < i - 1; cur_idx++)
-    {
-      if (!dir_lookup (cur_dir, argv[cur_idx], inode))
-        {
-          palloc_free_page (name);
-          palloc_free_page (argv);
-          return false;
-        }
-      dir_close (cur_dir);
-      cur_dir = dir_open (*inode);
-      ASSERT (cur_dir != NULL);
-    }
-  dir_lookup (cur_dir, argv[cur_idx], inode);
-  palloc_free_page (name);
-  palloc_free_page (argv);
-  return true;
+  argv[num_tokens] = NULL;
+  return num_tokens;
 }
 
-
+struct dir *
+path_lookup (struct dir *dir, char **path, int path_length)
+{
+  int i = 0;
+  struct dir *cur_dir = dir;
+  struct inode *inode;
+  for (i = 0; i < path_length; i++)
+    {
+      if (!dir_lookup (cur_dir, path[i], &inode))
+        {
+          dir_close (cur_dir);
+          return NULL;
+        }
+      dir_close (cur_dir);
+      if (inode_is_directory (inode))
+        cur_dir = dir_open (inode);
+      else
+        return NULL;
+    }
+  return cur_dir;
+}
 
 /* Adds a file named NAME to DIR, which must not already contain a
    file by that name.  The file's inode is in sector

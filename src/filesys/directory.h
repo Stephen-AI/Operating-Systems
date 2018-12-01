@@ -21,7 +21,16 @@ struct dir
     off_t pos;                          /* Current position. */
   };
 
-block_sector_t get_directory_sector (struct dir *);
+struct create
+  {
+    bool isdir;
+    off_t initial_size;
+  };
+
+
+
+block_sector_t get_dir_sector (struct dir *);
+int tokenize_path (char *, char **);
 /* Opening and closing directories. */
 bool dir_create (block_sector_t, block_sector_t sector, size_t entry_cnt);
 struct dir *dir_open (struct inode *);
@@ -35,6 +44,6 @@ bool dir_lookup (const struct dir *, const char *name, struct inode **);
 bool dir_add (struct dir *, const char *name, block_sector_t);
 bool dir_remove (struct dir *, const char *name);
 bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
-bool path_lookup (struct dir *dir, const char *path, struct inode **inode);
+struct dir *path_lookup (struct dir *dir, char **path, int num_tokens);
 
 #endif /* filesys/directory.h */

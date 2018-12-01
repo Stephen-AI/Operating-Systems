@@ -6,6 +6,7 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "threads/palloc.h"
 
 /* Partition that contains the file system. */
 struct block *fs_device;
@@ -48,22 +49,34 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
 {
   block_sector_t inode_sector = 0;
   struct dir *dir;
-  struct thread *cur;
   bool success;
-  dir = dir_reopen (thread_current ()->cwd);
+  char *path, **path_args;
+  int path_length;
+
+  path = palloc_get_page (PAL_ZERO);
+  path_args = palloc_get_page (PAL_ZERO);
+  ASSERT (path != NULL && path_args != NULL);
+  strlcpy (path, name, strlen (name) + 1);
+  path_length = tokenize_path (path, path_args);
+
+  if (name[0] != '/')
+    dir = dir_reopen (thread_current ()->cwd);
+  else
+    dir = dir_reopen (dir_open_root ());
+  dir = path_lookup (dir, path_args, path_length - 1);
   success = (dir != NULL && free_map_allocate (1, &inode_sector));
   if (success && isdir)
-    success = dir_create (get_directory_sector (dir), inode_sector, DIR_INIT) &&
+    success = dir_create (get_dir_sector (dir), inode_sector, DIR_INIT) &&
               dir_add (dir, name, inode_sector);
   else if (success)
     success = inode_create (inode_sector, initial_size, false) &&
               dir_add (dir, name, inode_sector);
-  else;
   
   if (!success && inode_sector != 0) 
     free_map_release (&inode_sector, 1);
   dir_close (dir);
-
+  palloc_free_page (path);
+  palloc_free_page (path_args);
   return success;
 }
 
@@ -75,7 +88,79 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
 struct file *
 filesys_open (const char *name)
 {
-  
+  struct dir *dir;
+  char *path, **path_args;
+  int path_length;
+  struct inode *inode = NULL;
+  if (strlen (name) == 0)
+    return NULL;
+  path = palloc_get_page (PAL_ZERO);
+  path_args = palloc_get_page (PAL_ZERO);
+
+  ASSERT (path != NULL && path_args != NULL);
+  strlcpy (path, name, strlen (name) + 1);
+  path_length = tokenize_path (path, path_args);
+  if (name[0] != '/')
+    dir = dir_reopen (thread_current ()->cwd);
+  else
+    dir = dir_reopen (dir_open_root ());
+
+  dir = path_lookup (dir, path_args, path_length - 1);
+  if (dir == NULL)
+    {
+      palloc_free_page (path);
+      palloc_free_page (path_args);
+      return NULL;
+    }
+
+  dir_lookup (dir, path_args[path_length - 1], &inode);
+  palloc_free_page (path);
+  palloc_free_page (path_args);
+  dir_close (dir);
+  return file_open (inode);
+}
+
+/* changes the current thread's working directory to the working directory
+   specified by name */
+bool
+change_working_directory (const char *name)
+{
+  /* David driving */
+  bool success = true;
+  struct dir *dir;
+  char *path, **path_args;
+  int path_length;
+  struct inode *inode = NULL;
+  if (strlen (name) == 0)
+    return false;
+  path = palloc_get_page (PAL_ZERO);
+  path_args = palloc_get_page (PAL_ZERO);
+
+  ASSERT (path != NULL && path_args != NULL);
+  strlcpy (path, name, strlen (name) + 1);
+  path_length = tokenize_path (path, path_args);
+  if (name[0] != '/')
+    dir = dir_reopen (thread_current ()->cwd);
+  else
+    dir = dir_reopen (dir_open_root ());
+
+  dir = path_lookup (dir, path_args, path_length);
+  if (dir == NULL)
+    success = false;
+  if (success)
+    thread_current ()->cwd = dir;
+  palloc_free_page (path);
+  palloc_free_page (path_args);
+  return success;
+}
+
+/* Deletes the file named NAME.
+   Returns true if successful, false on failure.
+   Fails if no file named NAME exists,
+   or if an internal memory allocation fails. */
+bool
+filesys_remove (const char *name) 
+{/*
   struct dir *dir;
   char *start = name;
   if (name[0] != '/')
@@ -87,23 +172,34 @@ filesys_open (const char *name)
     }
   struct inode *inode = NULL;
   ASSERT (dir != NULL);
-  if (!path_lookup (dir, start, &inode))
-    ASSERT (false);
-  ASSERT (inode != NULL);
-  return file_open (inode);
-}
+  path_lookup (dir, start, &inode, NULL);
+  
+  return dir_remove (dir, name);
+*/
+  struct dir *dir;
+  bool success;
+  char *path, **path_args;
+  int path_length;
+  path = palloc_get_page (PAL_ZERO);
+  path_args = palloc_get_page (PAL_ZERO);
 
-/* Deletes the file named NAME.
-   Returns true if successful, false on failure.
-   Fails if no file named NAME exists,
-   or if an internal memory allocation fails. */
-bool
-filesys_remove (const char *name) 
-{
-  struct dir *dir = dir_open_root ();
-  bool success = dir != NULL && dir_remove (dir, name);
-  dir_close (dir); 
+  ASSERT (path != NULL && path_args != NULL);
+  strlcpy (path, name, strlen (name) + 1);
+  path_length = tokenize_path (path, path_args);
 
+  if (name[0] != '/')
+    dir = dir_reopen (thread_current ()->cwd);
+  else
+    dir = dir_reopen (dir_open_root ());
+
+  dir = path_lookup (dir, path_args, path_length - 1);
+  if (dir == NULL)
+    return false;
+  
+  success = dir_remove (dir, path_args[path_length - 1]);
+  palloc_free_page (path);
+  palloc_free_page (path_args);
+  dir_close (dir);
   return success;
 }
 
