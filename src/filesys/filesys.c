@@ -53,6 +53,9 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   char *path, **path_args;
   int path_length;
 
+  if (strlen (name) == 0)
+    return false;
+
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
   ASSERT (path != NULL && path_args != NULL);
@@ -67,10 +70,10 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   success = (dir != NULL && free_map_allocate (1, &inode_sector));
   if (success && isdir)
     success = dir_create (get_dir_sector (dir), inode_sector, DIR_INIT) &&
-              dir_add (dir, name, inode_sector);
+              dir_add (dir, path_args[path_length - 1], inode_sector);
   else if (success)
     success = inode_create (inode_sector, initial_size, false) &&
-              dir_add (dir, name, inode_sector);
+              dir_add (dir, path_args[path_length - 1], inode_sector);
   
   if (!success && inode_sector != 0) 
     free_map_release (&inode_sector, 1);
