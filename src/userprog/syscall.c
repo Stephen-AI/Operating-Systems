@@ -28,6 +28,12 @@ static void seek_handler (struct intr_frame *f);
 static void tell_handler (struct intr_frame *f);
 static void close_handler (struct intr_frame *f);
 static bool is_valid_str (char *str);
+/* Stephen driving */
+static void chdir_handler (struct intr_frame *f);
+static void mkdir_handler (struct intr_frame *f);
+static void readdir_handler (struct intr_frame *f);
+static void isdir_handler (struct intr_frame *f);
+static void inumber_handler (struct intr_frame *f);
 
 /* check if a string is in valid memory*/
 bool 
@@ -103,6 +109,11 @@ syscall_handler (struct intr_frame *f)
     case 10: seek_handler (f); break;
     case 11: tell_handler (f); break;
     case 12: close_handler (f); break;
+    case 13: chdir_handler (f); break;
+    case 14: mkdir_handler (f); break;
+    case 15: readdir_handler (f); break;
+    case 16: isdir_handler (f); break;
+    case 17: inumber_handler (f); break;
     default: 
     printf("System call SYSCALLNO: %d not implemented\n", syscall_no);
     thread_exit ();
@@ -427,4 +438,31 @@ close_handler (struct intr_frame *f UNUSED)
       sema_up (&filesys_sema);
     }
 }
+
+static void 
+chdir_handler (struct intr_frame *f)
+{
+  printf ("chdir called\n");
+}
+
+static void mkdir_handler (struct intr_frame *f)
+{
+  printf ("mkdir called\n");
+}
+
+static void readdir_handler (struct intr_frame *f)
+{
+  printf ("readdir called\n");
+}
+
+static void isdir_handler (struct intr_frame *f)
+{
+  printf ("isdir called\n");
+}
+
+static void inumber_handler (struct intr_frame *f)
+{
+  printf ("inumber called\n");
+}
+
 
