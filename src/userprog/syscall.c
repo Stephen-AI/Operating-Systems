@@ -363,7 +363,10 @@ write_handler (struct intr_frame *f UNUSED)
       else 
         {
           sema_down (&filesys_sema);
-          bytes = file_write (file, *buf, count);
+          if (!file_isdir (file))
+            bytes = file_write (file, *buf, count);
+          else
+            bytes = -1;
           sema_up (&filesys_sema);
         }
     }
@@ -470,7 +473,34 @@ static void mkdir_handler (struct intr_frame *f)
 
 static void readdir_handler (struct intr_frame *f)
 {
-  printf ("readdir called\n");
+  int *fd_ptr = (int *)(f->esp + 4);
+  char **buf = ((char **) f->esp + 2);
+  struct file *file;
+  struct dir *dir;
+  if (!is_valid_ptr (fd_ptr))
+    thread_exit ();
+  if (!is_valid_str (*buf))
+    thread_exit ();
+
+  sema_down (&filesys_sema);
+  file = thread_current ()->open_files[*fd_ptr];
+  if (file != NULL)
+    {
+      if (file_isdir (file))
+        {
+          dir = dir_open (file_get_inode (file));
+          if (dir != NULL)
+            f->eax = dir_readdir (dir, *buf);
+          else
+            f->eax = false;
+        }
+      else
+        f->eax = false;
+    }
+  else
+    f->eax = false;
+  sema_up (&filesys_sema);
+  
 }
 
 static void isdir_handler (struct intr_frame *f)
