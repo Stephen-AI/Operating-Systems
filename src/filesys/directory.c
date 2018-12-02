@@ -15,6 +15,9 @@ struct dir_entry
     bool in_use;                        /* In use or free? */
   };
 static struct lock *dir_get_lock (struct dir *dir);
+static void dir_decr_file_cnt (struct dir *dir);
+static void dir_incr_file_cnt (struct dir *dir);
+static bool remove_dir (struct inode *inode);
 
 /* Gets the directory lock for a struct dir */
 static struct lock *
@@ -22,6 +25,18 @@ dir_get_lock (struct dir *dir)
 {
   ASSERT (inode_is_directory (dir->inode));
   return &dir->inode->dir_lock;
+}
+
+static void 
+dir_incr_file_cnt (struct dir *dir)
+{
+  dir->inode->data.num_files++;
+}
+
+static void 
+dir_decr_file_cnt (struct dir *dir)
+{
+  dir->inode->data.num_files--;
 }
 
 block_sector_t
@@ -42,6 +57,7 @@ dir_create (block_sector_t parent_sec, block_sector_t sector, size_t entry_cnt)
       cur_dir = dir_open (inode_open (sector));
       dir_add (cur_dir, "..", parent_sec);
       dir_add (cur_dir, ".", sector);
+      return true;
     }
   else
     return false;
@@ -142,13 +158,19 @@ dir_lookup (const struct dir *dir, const char *name,
   struct dir_entry e;
 
   ASSERT (dir != NULL);
+  
   if (!inode_is_directory (dir->inode))
     return false;
+  
+  struct lock *dir_lock = dir_get_lock (dir);
+  lock_acquire (dir_lock);
+
   if (lookup (dir, name, &e, NULL))
     *inode = inode_open (e.inode_sector);
   else
     *inode = NULL;
 
+  lock_release (dir_lock);
   return *inode != NULL;
 }
 
@@ -200,6 +222,8 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   struct dir_entry e;
   off_t ofs;
   bool success = false;
+  struct lock *dir_lock = dir_get_lock (dir);
+  lock_acquire (dir_lock);
 
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
@@ -229,8 +253,29 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   strlcpy (e.name, name, sizeof e.name);
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  if (success)
+    dir_incr_file_cnt (dir);
 
  done:
+  lock_release (dir_lock);
+  return success;
+}
+
+/* mark the dirctory as removed by taking in the inode of the directory */
+static bool
+remove_dir (struct inode *inode)
+{
+  /* YunFan driving */
+  bool success = false;
+  lock_acquire (&inode->dir_lock);
+
+  if (inode->data.num_files == 2)
+    {
+      inode_remove (inode);
+      success = true;
+    }
+  
+  lock_release (&inode->dir_lock);
   return success;
 }
 
@@ -248,6 +293,9 @@ dir_remove (struct dir *dir, const char *name)
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
+  struct lock *dir_lock = dir_get_lock (dir);
+  lock_acquire (dir_lock);
+
   /* Find directory entry. */
   if (!lookup (dir, name, &e, &ofs))
     goto done;
@@ -257,8 +305,15 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  if (inode_is_directory (inode))
+    {
+      if (!remove_dir (inode))
+        goto done;
+    }
+
   /* Erase directory entry. */
   e.in_use = false;
+  dir_decr_file_cnt (dir);
   if (inode_write_at (dir->inode, &e, sizeof e, ofs) != sizeof e) 
     goto done;
 
@@ -266,7 +321,10 @@ dir_remove (struct dir *dir, const char *name)
   inode_remove (inode);
   success = true;
 
+  
+
  done:
+  lock_release (dir_lock);
   inode_close (inode);
   return success;
 }

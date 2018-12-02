@@ -14,11 +14,12 @@ struct inode_disk
     size_t sectors_allocated;           /* # of sectors allocated to file */
     off_t length;                       /* File size in bytes. */
     bool isdir;                         /* Is this inode for a directory? */
+    size_t num_files;                   /* Number of files under a directory */
     unsigned magic;                     /* Magic number. */
     block_sector_t direct_blocks[10];   /* Direct data blocks */
     block_sector_t first_level;         /* 1st level indirection block */
     block_sector_t second_level;        /* 2nd level indirection block */
-    uint32_t unused[112];               /* Not used. */
+    uint32_t unused[111];               /* Not used. */
   };
 
 /* In-memory inode. */

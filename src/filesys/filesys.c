@@ -166,26 +166,14 @@ change_working_directory (const char *name)
    or if an internal memory allocation fails. */
 bool
 filesys_remove (const char *name) 
-{/*
-  struct dir *dir;
-  char *start = name;
-  if (name[0] != '/')
-    dir = dir_reopen (thread_current ()->cwd);
-  else
-    {
-      dir = dir_reopen (dir_open_root ());
-      start += 1;
-    }
-  struct inode *inode = NULL;
-  ASSERT (dir != NULL);
-  path_lookup (dir, start, &inode, NULL);
-  
-  return dir_remove (dir, name);
-*/
+{
   struct dir *dir;
   bool success;
   char *path, **path_args;
   int path_length;
+
+  if (strlen(name) == 1 && name[0] == '/')
+    return false;
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
 
@@ -201,8 +189,11 @@ filesys_remove (const char *name)
   dir = path_lookup (dir, path_args, path_length - 1);
   if (dir == NULL)
     return false;
-  
-  success = dir_remove (dir, path_args[path_length - 1]);
+  if (strcmp (path_args[path_length - 1], ".") && 
+      strcmp (path_args[path_length - 1], ".."))
+    success = dir_remove (dir, path_args[path_length - 1]);
+  else
+    success = false;
   palloc_free_page (path);
   palloc_free_page (path_args);
   dir_close (dir);
