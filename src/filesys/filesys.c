@@ -97,6 +97,13 @@ filesys_open (const char *name)
   struct inode *inode = NULL;
   if (strlen (name) == 0)
     return NULL;
+    
+  /* if name is '/' */
+  if (strlen (name) == 1 && name[0] == '/')
+    {
+      return file_open (inode_open (ROOT_DIR_SECTOR));
+    }
+  
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
 
