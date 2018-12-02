@@ -151,7 +151,10 @@ change_working_directory (const char *name)
   if (dir == NULL)
     success = false;
   if (success)
-    thread_current ()->cwd = dir;
+    {
+      dir_close (thread_current ()->cwd);
+      thread_current ()->cwd = dir;
+    }
   palloc_free_page (path);
   palloc_free_page (path_args);
   return success;
