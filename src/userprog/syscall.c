@@ -522,7 +522,19 @@ static void isdir_handler (struct intr_frame *f)
 
 static void inumber_handler (struct intr_frame *f)
 {
-  printf ("inumber called\n");
+  /* Matthew driving */
+  int *fd_ptr = (int *)(f->esp + 4);
+  struct file *file;
+  if (!is_valid_ptr (fd_ptr))
+    thread_exit ();
+  if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
+    f->eax = 0;
+  else
+    {
+      file = thread_current ()->open_files[*fd_ptr];
+      /* remove file from list of open files */
+      f->eax = file_get_inumber (file);
+    }
 }
 
 

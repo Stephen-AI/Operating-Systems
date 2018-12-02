@@ -192,7 +192,6 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
         }
       else
         {
-          ASSERT (false);
           success = false;
         }
       
@@ -218,7 +217,6 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
       if (!allocate_first_level (level1, first_idx + 1, sec_alloc))
         {
           success = false;
-          ASSERT (success);
         }
       else
         {
@@ -243,7 +241,6 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
         if (!free_map_allocate (1, &disk_inode->second_level))
           {
             success = false;
-            ASSERT (false);
           }
 
       level2[0] = disk_inode->second_level;
@@ -251,7 +248,6 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
       if (!allocate_second_level (level2, first_idx, second_idx + 1, sec_len))
         {
           success = false;
-          ASSERT (success);
         }
       disk_inode->sectors_allocated += sec_len;
       palloc_free_page (level2);
@@ -318,7 +314,6 @@ allocate_first_level (block_sector_t *first_level, off_t start, size_t length)
       block_write (fs_device, first_level[0], first_level + 1);
       success = true;
     }
-  ASSERT (success);
   return success;
 }
 
@@ -361,8 +356,6 @@ allocate_second_level (block_sector_t *second_level, off_t first_ind,
     }
   if (success)
     block_write (fs_device, second_level[0], second_level + 1);
-  else
-    ASSERT (false);
   palloc_free_page (first_level);
   return success;
 }
@@ -568,10 +561,18 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   return bytes_read;
 }
 
+bool
+inode_is_removed (struct inode *inode)
+{
+  /* David driving */
+  ASSERT (inode != NULL);
+  return inode->removed;
+}
 /* Determines whether an inode corresponds to a file or to a directory */
 bool
 inode_is_directory (struct inode *inode)
 {
+  /* David driving */
   ASSERT (inode != NULL);
   return inode->data.isdir;
 }

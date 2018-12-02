@@ -52,7 +52,7 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   bool success;
   char *path, **path_args;
   int path_length;
-
+  struct inode *inode;
   if (strlen (name) == 0)
     return false;
 
@@ -75,8 +75,12 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
     success = inode_create (inode_sector, initial_size, false) &&
               dir_add (dir, path_args[path_length - 1], inode_sector);
   
-  if (!success && inode_sector != 0) 
-    free_map_release (&inode_sector, 1);
+  if (!success && inode_sector != 0)
+    {
+      inode = inode_open (inode_sector);
+      inode_remove (inode);
+      inode_close (inode);
+    }
   dir_close (dir);
   palloc_free_page (path);
   palloc_free_page (path_args);
@@ -140,7 +144,6 @@ change_working_directory (const char *name)
   struct dir *dir;
   char *path, **path_args;
   int path_length;
-  struct inode *inode = NULL;
   if (strlen (name) == 0)
     return false;
   path = palloc_get_page (PAL_ZERO);

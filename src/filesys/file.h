@@ -3,6 +3,7 @@
 
 #include "filesys/off_t.h"
 #include <stdbool.h>
+#include "devices/block.h"
 
 struct inode;
 /* Opening and closing files. */
@@ -26,5 +27,6 @@ void file_seek (struct file *, off_t);
 off_t file_tell (struct file *);
 off_t file_length (struct file *);
 bool file_isdir (struct file *);
+block_sector_t file_get_inumber (struct file *file);
 
 #endif /* filesys/file.h */

@@ -41,6 +41,14 @@ file_reopen (struct file *file)
   return file_open (inode_reopen (file->inode));
 }
 
+/* get the inumber of a file's inode */
+block_sector_t
+file_get_inumber (struct file *file)
+{
+  /* Matthew driving lol */
+  return inode_get_inumber (file->inode);
+}
+
 /* Closes FILE. */
 void
 file_close (struct file *file) 

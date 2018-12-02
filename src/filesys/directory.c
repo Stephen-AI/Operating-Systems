@@ -73,7 +73,7 @@ dir_open (struct inode *inode)
   if (inode != NULL && dir != NULL)
     {
       dir->inode = inode;
-      dir->pos = 0;
+      dir->pos = 2 * sizeof (struct dir_entry);
       return dir;
     }
   else
@@ -158,7 +158,8 @@ dir_lookup (const struct dir *dir, const char *name,
   struct dir_entry e;
 
   ASSERT (dir != NULL);
-  
+  if (inode_is_removed (dir->inode))
+    return false;
   if (!inode_is_directory (dir->inode))
     return false;
   
@@ -223,6 +224,8 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   off_t ofs;
   bool success = false;
   struct lock *dir_lock = dir_get_lock (dir);
+  if (inode_is_removed (dir->inode))
+    return false;
   lock_acquire (dir_lock);
 
   ASSERT (dir != NULL);
@@ -290,9 +293,12 @@ dir_remove (struct dir *dir, const char *name)
   bool success = false;
   off_t ofs;
 
+  if (inode_is_removed (dir->inode))
+    return false;
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
+  /* YunFan driving */
   struct lock *dir_lock = dir_get_lock (dir);
   lock_acquire (dir_lock);
 
@@ -321,8 +327,6 @@ dir_remove (struct dir *dir, const char *name)
   inode_remove (inode);
   success = true;
 
-  
-
  done:
   lock_release (dir_lock);
   inode_close (inode);
@@ -336,15 +340,21 @@ bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 {
   struct dir_entry e;
+  struct lock *dir_lock = dir_get_lock (dir);
 
+  if (inode_is_removed (dir->inode))
+    return false;
+  lock_acquire (dir_lock);
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
+          lock_release (dir_lock);
           return true;
         } 
     }
+  lock_release (dir_lock);
   return false;
 }
