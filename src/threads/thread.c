@@ -303,7 +303,7 @@ thread_exit (void)
       /* Stephen driving */
       sema_up (&child->parent_reap_sema);
     }
-  
+  dir_close (thread_current ()->cwd);
   /* Signal to parent that the process has exited, and wait until parent 
      gets exit status or dies */
   sema_up (&thread_current ()->child_done_sema);

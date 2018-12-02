@@ -493,6 +493,7 @@ static void readdir_handler (struct intr_frame *f)
             f->eax = dir_readdir (dir, *buf);
           else
             f->eax = false;
+          dir_close (dir);
         }
       else
         f->eax = false;

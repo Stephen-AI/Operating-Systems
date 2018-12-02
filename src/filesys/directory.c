@@ -57,6 +57,7 @@ dir_create (block_sector_t parent_sec, block_sector_t sector, size_t entry_cnt)
       cur_dir = dir_open (inode_open (sector));
       dir_add (cur_dir, "..", parent_sec);
       dir_add (cur_dir, ".", sector);
+      dir_close (cur_dir);
       return true;
     }
   else
@@ -204,7 +205,9 @@ path_lookup (struct dir *dir, char **path, int path_length)
         }
       dir_close (cur_dir);
       if (inode_is_directory (inode))
-        cur_dir = dir_open (inode);
+        {
+          cur_dir = dir_open (inode);
+        }
       else
         return NULL;
     }

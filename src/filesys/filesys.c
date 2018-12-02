@@ -65,7 +65,7 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   if (name[0] != '/')
     dir = dir_reopen (thread_current ()->cwd);
   else
-    dir = dir_reopen (dir_open_root ());
+    dir = dir_open_root ();
   dir = path_lookup (dir, path_args, path_length - 1);
   success = (dir != NULL && free_map_allocate (1, &inode_sector));
   if (success && isdir)
@@ -101,7 +101,6 @@ filesys_open (const char *name)
   struct inode *inode = NULL;
   if (strlen (name) == 0)
     return NULL;
-    
   /* if name is '/' */
   if (strlen (name) == 1 && name[0] == '/')
     {
@@ -117,8 +116,7 @@ filesys_open (const char *name)
   if (name[0] != '/')
     dir = dir_reopen (thread_current ()->cwd);
   else
-    dir = dir_reopen (dir_open_root ());
-
+    dir = dir_open_root ();
   dir = path_lookup (dir, path_args, path_length - 1);
   if (dir == NULL)
     {
@@ -155,7 +153,8 @@ change_working_directory (const char *name)
   if (name[0] != '/')
     dir = dir_reopen (thread_current ()->cwd);
   else
-    dir = dir_reopen (dir_open_root ());
+    dir = dir_open_root ();
+  // printf ("called dir_reopen on cwd from filesys_open: %p\n", dir);
 
   dir = path_lookup (dir, path_args, path_length);
   if (dir == NULL)
@@ -194,7 +193,7 @@ filesys_remove (const char *name)
   if (name[0] != '/')
     dir = dir_reopen (thread_current ()->cwd);
   else
-    dir = dir_reopen (dir_open_root ());
+    dir = dir_open_root ();
 
   dir = path_lookup (dir, path_args, path_length - 1);
   if (dir == NULL)
