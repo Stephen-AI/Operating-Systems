@@ -488,12 +488,10 @@ static void readdir_handler (struct intr_frame *f)
     {
       if (file_isdir (file))
         {
-          dir = dir_open (file_get_inode (file));
-          if (dir != NULL)
-            f->eax = dir_readdir (dir, *buf);
+          if (file != NULL)
+            f->eax = dir_readdir (file, *buf);
           else
             f->eax = false;
-          dir_close (dir);
         }
       else
         f->eax = false;

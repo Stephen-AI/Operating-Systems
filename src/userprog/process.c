@@ -84,6 +84,9 @@ start_process (void *file_name_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
+  /* David driving */
+  if (cur->cwd == NULL)
+    cur->cwd = dir_open_root ();
   success = load (file_name, &if_.eip, &if_.esp);
   /* Indicate to parent whether chlld has loaded succesfully */
   cur->loaded = success;

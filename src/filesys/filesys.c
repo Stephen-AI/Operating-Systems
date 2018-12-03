@@ -29,7 +29,6 @@ filesys_init (bool format)
     do_format ();
 
   free_map_open ();
-  thread_current ()->cwd = dir_open_root ();
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -62,10 +61,10 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
 
-  if (name[0] != '/')
-    dir = dir_reopen (thread_current ()->cwd);
-  else
+  if (name[0] == '/' || thread_current ()->cwd == NULL)
     dir = dir_open_root ();
+  else
+    dir = dir_reopen (thread_current ()->cwd);
   dir = path_lookup (dir, path_args, path_length - 1);
   success = (dir != NULL && free_map_allocate (1, &inode_sector));
   if (success && isdir)
@@ -113,10 +112,10 @@ filesys_open (const char *name)
   ASSERT (path != NULL && path_args != NULL);
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
-  if (name[0] != '/')
-    dir = dir_reopen (thread_current ()->cwd);
-  else
+  if (name[0] == '/' || thread_current ()->cwd == NULL)
     dir = dir_open_root ();
+  else
+    dir = dir_reopen (thread_current ()->cwd);
   dir = path_lookup (dir, path_args, path_length - 1);
   if (dir == NULL)
     {
@@ -129,6 +128,8 @@ filesys_open (const char *name)
   palloc_free_page (path);
   palloc_free_page (path_args);
   dir_close (dir);
+  if (inode != NULL && inode_is_directory (inode))
+    return (struct file *)dir_open (inode);
   return file_open (inode);
 }
 
@@ -190,10 +191,10 @@ filesys_remove (const char *name)
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
 
-  if (name[0] != '/')
-    dir = dir_reopen (thread_current ()->cwd);
-  else
+  if (name[0] == '/' || thread_current ()->cwd == NULL)
     dir = dir_open_root ();
+  else
+    dir = dir_reopen (thread_current ()->cwd);
 
   dir = path_lookup (dir, path_args, path_length - 1);
   if (dir == NULL)
