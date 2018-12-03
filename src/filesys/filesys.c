@@ -103,7 +103,7 @@ filesys_open (const char *name)
   /* if name is '/' */
   if (strlen (name) == 1 && name[0] == '/')
     {
-      return file_open (inode_open (ROOT_DIR_SECTOR));
+      return dir_open (inode_open (ROOT_DIR_SECTOR));
     }
   
   path = palloc_get_page (PAL_ZERO);

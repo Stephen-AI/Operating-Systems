@@ -354,7 +354,6 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
       if (e.in_use)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
-          printf ("read name %s at position %d \n", e.name, dir->pos - sizeof e);
           lock_release (dir_lock);
           return true;
         } 

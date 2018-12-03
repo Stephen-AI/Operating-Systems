@@ -20,6 +20,7 @@ file_open (struct inode *inode)
   struct file *file = calloc (1, sizeof *file);
   if (inode != NULL && file != NULL)
     {
+      ASSERT (!inode_is_directory (inode));
       file->inode = inode;
       file->pos = 0;
       file->deny_write = false;
