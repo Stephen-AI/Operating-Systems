@@ -70,7 +70,6 @@ void
 syscall_init (void) 
 {
   /* Matthew driving */
-  sema_init (&filesys_sema, 1);  
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -189,9 +188,9 @@ create_handler (struct intr_frame *f UNUSED)
   if (!is_valid_str (*buf))
     thread_exit ();
 
-  sema_down (&filesys_sema);
+  
   f->eax = filesys_create (*buf, *(int *)size_ptr, false);
-  sema_up (&filesys_sema);
+  
 }
 
 /* remove file system call handler */
@@ -206,9 +205,9 @@ remove_handler (struct intr_frame *f UNUSED)
   
   if (!is_valid_str (*file_name))
     thread_exit ();
-  sema_down (&filesys_sema);
+  
   f->eax = filesys_remove (*file_name);
-  sema_up (&filesys_sema);
+  
 }
 
 /* open file system call handler */
@@ -230,7 +229,7 @@ open_handler (struct intr_frame *f UNUSED)
   struct thread *cur = thread_current ();
   /* check if the file is in the file system
      if it is in the file system, look for a fd number for the file */
-  sema_down (&filesys_sema);
+  
   if ((file = filesys_open (*buf)) != NULL) 
     {
       for (fd = 2; fd < MAX_OPEN_FILES; fd++)
@@ -239,12 +238,12 @@ open_handler (struct intr_frame *f UNUSED)
             {
               cur->open_files[fd] = file;
               f->eax = fd;
-              sema_up (&filesys_sema);
+              
               return;
             }
         }
     }
-  sema_up (&filesys_sema);
+  
   f->eax = -1;
 }
 
@@ -274,9 +273,9 @@ filesize_handler (struct intr_frame *f UNUSED)
         }
       else
         {
-          sema_down (&filesys_sema);
+          
           f->eax = file_length (file);
-          sema_up (&filesys_sema);
+          
         }
     }
 }
@@ -319,9 +318,9 @@ read_handler (struct intr_frame *f UNUSED)
         {
           /* Stephen driving */
           /* synchronize reading/writing */
-          sema_down (&filesys_sema);
+          
           byte_read = file_read (file, *buf, *(int *)size_ptr);
-          sema_up (&filesys_sema);
+          
           f->eax = byte_read;
         }
     }
@@ -362,12 +361,12 @@ write_handler (struct intr_frame *f UNUSED)
       /* synchronize reading/writing */
       else 
         {
-          sema_down (&filesys_sema);
+          
           if (!file_isdir (file))
             bytes = file_write (file, *buf, count);
           else
             bytes = -1;
-          sema_up (&filesys_sema);
+          
         }
     }
   f->eax = bytes;
@@ -389,9 +388,9 @@ seek_handler (struct intr_frame *f UNUSED)
       file = thread_current ()->open_files[*fd_ptr];
       if (file != NULL)
         {
-          sema_down (&filesys_sema);
+          
           file_seek (file, *pos_ptr);
-          sema_up (&filesys_sema);
+          
         }
     }
 }
@@ -414,9 +413,9 @@ tell_handler (struct intr_frame *f UNUSED)
         f->eax = -1;
       else
         {
-          sema_down (&filesys_sema);
+          
           f->eax = file_tell (file);
-          sema_up (&filesys_sema);
+          
         }
     }
 }
@@ -436,9 +435,9 @@ close_handler (struct intr_frame *f UNUSED)
       file = thread_current ()->open_files[*fd_ptr];
       /* remove file from list of open files */
       thread_current ()->open_files[*fd_ptr] = NULL;
-      sema_down (&filesys_sema);
+      
       file_close (file);
-      sema_up (&filesys_sema);
+      
     }
 }
 
@@ -452,9 +451,9 @@ chdir_handler (struct intr_frame *f)
   if (!is_valid_str (*buf))
     thread_exit ();
 
-  sema_down (&filesys_sema);
+  
   f->eax = change_working_directory (*buf);
-  sema_up (&filesys_sema);
+  
 }
 
 static void mkdir_handler (struct intr_frame *f)
@@ -466,9 +465,9 @@ static void mkdir_handler (struct intr_frame *f)
   if (!is_valid_str (*buf))
     thread_exit ();
 
-  sema_down (&filesys_sema);
+  
   f->eax = filesys_create (*buf, 0, true);
-  sema_up (&filesys_sema);
+  
 }
 
 static void readdir_handler (struct intr_frame *f)
@@ -482,7 +481,7 @@ static void readdir_handler (struct intr_frame *f)
   if (!is_valid_str (*buf))
     thread_exit ();
 
-  sema_down (&filesys_sema);
+  
   file = thread_current ()->open_files[*fd_ptr];
   if (file != NULL)
     {
@@ -498,7 +497,7 @@ static void readdir_handler (struct intr_frame *f)
     }
   else
     f->eax = false;
-  sema_up (&filesys_sema);
+  
   
 }
 

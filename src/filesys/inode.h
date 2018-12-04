@@ -27,6 +27,7 @@ struct inode
   {
     struct list_elem elem;              /* Element in inode list. */
     struct lock dir_lock;               /* lock for directory */
+    struct lock inode_lock;             /* lock for extending files */
     block_sector_t sector;              /* Sector number of disk location. */
     int open_cnt;                       /* Number of openers. */
     bool removed;                       /* True if deleted, false otherwise. */
@@ -48,4 +49,5 @@ void inode_allow_write (struct inode *);
 off_t inode_length (const struct inode *);
 bool inode_extend (struct inode_disk *, off_t, off_t);
 bool inode_is_directory (struct inode *);
+bool inode_is_removed (struct inode *);
 #endif /* filesys/inode.h */

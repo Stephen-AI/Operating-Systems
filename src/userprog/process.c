@@ -166,10 +166,8 @@ process_exit (void)
   struct file **open_files = cur->open_files;
   int i;
   /* close any files opened by current process */
-  sema_down (&filesys_sema);
   for (i = 2; i < MAX_OPEN_FILES; i++)
     file_close (open_files[i]);
-  sema_up (&filesys_sema);
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -187,9 +185,7 @@ process_exit (void)
       pagedir_destroy (pd);
     }
   /* David driving */
-  sema_down (&filesys_sema);
   file_close (cur->user_executable);
-  sema_up (&filesys_sema);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -301,7 +297,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
   
   /* Open executable file. */
-  sema_down (&filesys_sema);
   file = filesys_open (exec_name);
   if (file == NULL) 
     {
@@ -400,7 +395,6 @@ load (const char *file_name, void (**eip) (void), void **esp)
     {
       t->user_executable = file;
     }
-  sema_up (&filesys_sema);
   return success;
 }
 
