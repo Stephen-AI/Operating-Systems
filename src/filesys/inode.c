@@ -45,19 +45,7 @@ struct byte_query
 static inline size_t
 bytes_to_sectors (off_t size)
 {
-  /* David driving */
-  /*
-  size_t extra_sectors = 0, remaining_bytes = 0;
-  if (size < DIRECT_LIMIT);
-  else if (size < FIRST_LEVEL_LIMIT)
-    extra_sectors = 1;
-  else
-    {
-      extra_sectors = 2;
-      remaining_bytes = size - FIRST_LEVEL_LIMIT;
-      extra_sectors += DIV_ROUND_UP (remaining_bytes, FIRST_LEVEL_SIZE);
-    }*/
-  return DIV_ROUND_UP (size, BLOCK_SECTOR_SIZE);// + extra_sectors;
+  return DIV_ROUND_UP (size, BLOCK_SECTOR_SIZE);
 }
 
 static void 
