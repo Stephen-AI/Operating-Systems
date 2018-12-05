@@ -38,7 +38,8 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
   lock_acquire (&free_map_lock);
   for (i = 0; i < cnt; i++)
     {
-      sector = bitmap_scan_and_flip (free_map, 0, 1, false);
+      sector = bitmap_scan_and_flip (free_map, 2, 1, false);
+      ASSERT (sector > 1);
       if (sector == BITMAP_ERROR)
       {
         for (j = 0; j < i; j++)
@@ -51,8 +52,7 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
       }
       sectorp[i] = sector; 
     }
-  if (free_map_file != NULL
-      && !bitmap_write (free_map, free_map_file))
+  if (free_map_file != NULL && !bitmap_write (free_map, free_map_file))
     {
       for (j = 0; j < i; j++)
         {

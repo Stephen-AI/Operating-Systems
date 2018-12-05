@@ -172,7 +172,7 @@ fsutil_append (char **argv)
   void *buffer;
   struct file *src;
   struct block *dst;
-  off_t size;
+  off_t size, x, y;
 
   printf ("Appending '%s' to ustar archive on scratch device...\n", file_name);
 
@@ -197,6 +197,8 @@ fsutil_append (char **argv)
     PANIC ("%s: name too long for ustar format", file_name);
   block_write (dst, sector++, buffer);
 
+  x = 1;
+  y = 0;
   /* Do copy. */
   while (size > 0) 
     {
@@ -205,9 +207,12 @@ fsutil_append (char **argv)
         PANIC ("%s: out of space on scratch device", file_name);
       if (file_read (src, buffer, chunk_size) != chunk_size)
         PANIC ("%s: read failed with %"PROTd" bytes unread", file_name, size);
+      
+      // hex_dump (y, buffer, chunk_size, true);
       memset (buffer + chunk_size, 0, BLOCK_SECTOR_SIZE - chunk_size);
       block_write (dst, sector++, buffer);
       size -= chunk_size;
+      y += chunk_size;
     }
 
   /* Write ustar end-of-archive marker, which is two consecutive
