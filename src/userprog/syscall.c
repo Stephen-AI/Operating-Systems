@@ -441,6 +441,7 @@ close_handler (struct intr_frame *f UNUSED)
     }
 }
 
+/* changes process's current working directory */
 static void 
 chdir_handler (struct intr_frame *f)
 {
@@ -450,12 +451,11 @@ chdir_handler (struct intr_frame *f)
     thread_exit ();
   if (!is_valid_str (*buf))
     thread_exit ();
-
   
   f->eax = change_working_directory (*buf);
-  
 }
 
+/* create a directory */
 static void mkdir_handler (struct intr_frame *f)
 {
   /* YunFan driving */
@@ -464,43 +464,38 @@ static void mkdir_handler (struct intr_frame *f)
     thread_exit ();
   if (!is_valid_str (*buf))
     thread_exit ();
-
   
+  /* calls filesys_create with a size of 0, because directories are initialized
+     to an arbitrary initial starting size anyway */
   f->eax = filesys_create (*buf, 0, true);
-  
 }
 
+/* reads entries in a directory and copies them to buf */
 static void readdir_handler (struct intr_frame *f)
 {
+  /* Stephen driving */
   int *fd_ptr = (int *)(f->esp + 4);
   char **buf = ((char **) f->esp + 2);
   struct file *file;
-  struct dir *dir;
   if (!is_valid_ptr (fd_ptr))
     thread_exit ();
   if (!is_valid_str (*buf))
     thread_exit ();
 
-  
+  f->eax = false;
   file = thread_current ()->open_files[*fd_ptr];
   if (file != NULL)
     {
+      /* make sure fd corresponds to a directory before trying to read it */
       if (file_isdir (file))
         {
           if (file != NULL)
-            f->eax = dir_readdir (file, *buf);
-          else
-            f->eax = false;
+            f->eax = dir_readdir ((struct dir *)file, *buf);
         }
-      else
-        f->eax = false;
     }
-  else
-    f->eax = false;
-  
-  
 }
 
+/* checks whether an fd corresponds to a directory */
 static void isdir_handler (struct intr_frame *f)
 {
   /* Stephen driving */
@@ -513,11 +508,14 @@ static void isdir_handler (struct intr_frame *f)
   else
     {
       file = thread_current ()->open_files[*fd_ptr];
-      /* remove file from list of open files */
-      f->eax = file_isdir (file);
+      if (file == NULL)
+        f->eax = 0;
+      else
+        f->eax = file_isdir (file);
     }
 }
 
+/* returns the inumber (sector number) of a file's inode */
 static void inumber_handler (struct intr_frame *f)
 {
   /* Matthew driving */
@@ -526,12 +524,14 @@ static void inumber_handler (struct intr_frame *f)
   if (!is_valid_ptr (fd_ptr))
     thread_exit ();
   if (*fd_ptr <= 1 || *fd_ptr >= MAX_OPEN_FILES)
-    f->eax = 0;
+    f->eax = -1;
   else
     {
       file = thread_current ()->open_files[*fd_ptr];
-      /* remove file from list of open files */
-      f->eax = file_get_inumber (file);
+      if (file == NULL)
+        f->eax = -1;
+      else
+        f->eax = file_get_inumber (file);
     }
 }
 

@@ -12,7 +12,7 @@
 struct block *fs_device;
 
 static void do_format (void);
-
+static struct dir *get_start_dir (const char *name);
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
 void
@@ -39,6 +39,20 @@ filesys_done (void)
   free_map_close ();
 }
 
+/* returns the starting directory of a relative or absolute path.
+   if the first character in the path is '/', or if the thread's cwd isn't set,
+   then start from root, otherwise start from the thread's current working
+   directory */
+static struct dir *
+get_start_dir (const char *name)
+{
+  /* David driving */
+  if (name[0] == '/' || thread_current ()->cwd == NULL)
+    return dir_open_root ();
+  else
+    return dir_reopen (thread_current ()->cwd);
+}
+
 /* Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
@@ -65,13 +79,16 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   path_length = tokenize_path (path, path_args);
 
   /* if the first character in the path is '/', or if the thread's cwd isn't
-     set, then start from root */
-  if (name[0] == '/' || thread_current ()->cwd == NULL)
-    dir = dir_open_root ();
-  else
-    dir = dir_reopen (thread_current ()->cwd);
+     set, then start from root, otherwise start from  */
+  dir = get_start_dir (name);
+  /* traverse up to second to last argument */
   dir = path_lookup (dir, path_args, path_length - 1);
+
+  /* make sure we found the directory, and were able to get a disk sector for
+     the inode */
   success = (dir != NULL && free_map_allocate (1, &inode_sector));
+  /* create the file or directory with the name of the last token in the
+     path */
   if (success && isdir)
     success = dir_create (get_dir_sector (dir), inode_sector, DIR_INIT) &&
               dir_add (dir, path_args[path_length - 1], inode_sector);
@@ -81,10 +98,13 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   
   if (!success && inode_sector != 0)
     {
+      /* if we failed to add the file or directory, then deallocate all of the
+         sectors allocated to the inode */
       inode = inode_open (inode_sector);
       inode_remove (inode);
       inode_close (inode);
     }
+  /* close the directory once we're done with it */
   dir_close (dir);
   palloc_free_page (path);
   palloc_free_page (path_args);
@@ -99,17 +119,16 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
 struct file *
 filesys_open (const char *name)
 {
+  /* Stephen driving */
   struct dir *dir;
   char *path, **path_args;
   int path_length;
   struct inode *inode = NULL;
   if (strlen (name) == 0)
     return NULL;
-  /* if name is '/' */
+  /* if name is '/', it'll get chewed up by tokenize path */
   if (strlen (name) == 1 && name[0] == '/')
-    {
-      return dir_open (inode_open (ROOT_DIR_SECTOR));
-    }
+    return dir_open (inode_open (ROOT_DIR_SECTOR));
   
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
@@ -117,11 +136,10 @@ filesys_open (const char *name)
   ASSERT (path != NULL && path_args != NULL);
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
-  if (name[0] == '/' || thread_current ()->cwd == NULL)
-    dir = dir_open_root ();
-  else
-    dir = dir_reopen (thread_current ()->cwd);
+  dir = get_start_dir (name);
+  /* traverse up to the second to last argument */
   dir = path_lookup (dir, path_args, path_length - 1);
+  /* failed to traverse the path */
   if (dir == NULL)
     {
       palloc_free_page (path);
@@ -129,10 +147,12 @@ filesys_open (const char *name)
       return NULL;
     }
 
+  /* look for the file */
   dir_lookup (dir, path_args[path_length - 1], &inode);
   palloc_free_page (path);
   palloc_free_page (path_args);
   dir_close (dir);
+  /* perform a dir open if the file found is a directory */
   if (inode != NULL && inode_is_directory (inode))
     return (struct file *)dir_open (inode);
   return file_open (inode);
@@ -156,16 +176,15 @@ change_working_directory (const char *name)
   ASSERT (path != NULL && path_args != NULL);
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
-  if (name[0] != '/')
-    dir = dir_reopen (thread_current ()->cwd);
-  else
-    dir = dir_open_root ();
+  dir = get_start_dir (name);
 
+  /* traverses up to the last argument of path_args */
   dir = path_lookup (dir, path_args, path_length);
   if (dir == NULL)
     success = false;
   if (success)
     {
+      /* close the thread's previous current working directory */
       dir_close (thread_current ()->cwd);
       thread_current ()->cwd = dir;
     }
@@ -181,11 +200,13 @@ change_working_directory (const char *name)
 bool
 filesys_remove (const char *name) 
 {
+  /* Stephen driving */
   struct dir *dir;
   bool success;
   char *path, **path_args;
   int path_length;
 
+  /* don't allow a process to remove root */
   if (strlen(name) == 1 && name[0] == '/')
     return false;
   path = palloc_get_page (PAL_ZERO);
@@ -195,14 +216,14 @@ filesys_remove (const char *name)
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
 
-  if (name[0] == '/' || thread_current ()->cwd == NULL)
-    dir = dir_open_root ();
-  else
-    dir = dir_reopen (thread_current ()->cwd);
+  dir = get_start_dir (name);
 
+  /* traverse up to the second to last name in the path */
   dir = path_lookup (dir, path_args, path_length - 1);
   if (dir == NULL)
     return false;
+  
+  /* don't allow a process to remove '.' or ".." */
   if (strcmp (path_args[path_length - 1], ".") && 
       strcmp (path_args[path_length - 1], ".."))
     success = dir_remove (dir, path_args[path_length - 1]);
