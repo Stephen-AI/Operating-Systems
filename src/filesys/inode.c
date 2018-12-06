@@ -426,9 +426,13 @@ free_first_level (struct inode_disk *disk_inode, block_sector_t level_sector,
   if (first_level == NULL)
     return false;
 
+  /* shouldn't be trying to free sectors corresponding to bitmap or root dir */
+  ASSERT (level_sector > 1);
   block_read (fs_device, level_sector, first_level + 1);
   first_level[0] = level_sector;
 
+  /* if we're freeing 0th index in the first level indirect block, then we 
+     free the sector containing the blocks */
   if (index == 0)
     free_map_release (first_level, free_sec + 1);
   else
@@ -438,6 +442,8 @@ free_first_level (struct inode_disk *disk_inode, block_sector_t level_sector,
   return true;
 }
 
+/* frees sectors in a second level indirect block, starting from a second 
+   level index and a first level index */
 static bool
 free_second_level (struct inode_disk *disk_inode, off_t first_ind, 
                    off_t sec_ind, size_t free_sec)
@@ -446,18 +452,25 @@ free_second_level (struct inode_disk *disk_inode, off_t first_ind,
   ASSERT (disk_inode->second_level > 1);
   block_sector_t *second_level = NULL;
   size_t sectors_to_free;
+
+  /* if our starting point is 0 in the second level indirect block and the
+     first level indirect block, then we want to free the second level indirect
+     block sector */
   bool free_second_level = (first_ind == 0 && sec_ind == 0);
 
   second_level = palloc_get_page (PAL_ZERO);
   if (second_level == NULL)
     return false;
 
+  /* read in the second level */
   block_read (fs_device, disk_inode->second_level, second_level + 1);
   second_level[0] = disk_inode->second_level;
 
   while (free_sec > 0)
     {
-      sectors_to_free = first_ind + free_sec > 128 ? 128 - first_ind : free_sec;
+      /* calculate how many sectors free_first_level will free */
+      sectors_to_free = first_ind + free_sec > INDIRECT_SECTORS ? 
+                        INDIRECT_SECTORS - first_ind : free_sec;
       if (!free_first_level (disk_inode, second_level[sec_ind], 
                              first_ind, sectors_to_free))
         {
