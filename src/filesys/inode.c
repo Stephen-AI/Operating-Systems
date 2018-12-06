@@ -13,6 +13,8 @@
 #define FIRST_LEVEL_LIMIT 70656       /* upper limit for first level block   */
 #define SECOND_LEVEL_LIMIT 8459264    /* upper limit for second level block  */
 #define FIRST_LEVEL_SIZE (BLOCK_SECTOR_SIZE * (BLOCK_SECTOR_SIZE / 4))
+#define INDIRECT_SECTORS (BLOCK_SECTOR_SIZE / (sizeof BLOCK_SECTOR_SIZE))
+#define DIRECT_SECTORS 10
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 static char zeros[BLOCK_SECTOR_SIZE];
@@ -24,6 +26,8 @@ static bool allocate_second_level (block_sector_t *, off_t, off_t,
 static bool free_second_level (struct inode_disk *, off_t, off_t, size_t);
 static bool free_first_level (struct inode_disk *, block_sector_t,
                               off_t, size_t);
+
+/* enums for identifying index type of a byte query */
 enum level_type
   {
     DIRECT_BLOCK,
@@ -32,12 +36,14 @@ enum level_type
     ERR
   };
 
+/* struct for storing indices on calculated positions for a particular 
+   file offset */
 struct byte_query
   {
-    enum level_type type;
-    off_t direct_block_index;
-    off_t second_level_index;
-    off_t first_level_index;
+    enum level_type type;               /* indicates what indices to read */
+    off_t direct_block_index;           /* direct block index */
+    off_t second_level_index;           /* second indirection block index */
+    off_t first_level_index;            /* first indirection block index */
   };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -48,9 +54,13 @@ bytes_to_sectors (off_t size)
   return DIV_ROUND_UP (size, BLOCK_SECTOR_SIZE);
 }
 
+/* calculates how to index into the sectors in a disk inode given a certain
+   offset, type field will identify whether an offset is in a direct, indirect
+   or double indirect block */
 static void 
 calculate_sector_indices (struct byte_query *byte_query, off_t pos)
 {
+  /* Stephen driving */
   byte_query->direct_block_index = -1;
   byte_query->first_level_index = -1;
   byte_query->second_level_index = -1;
@@ -92,6 +102,7 @@ byte_to_sector (const struct inode *inode, off_t pos)
   int first_ind, second_ind;
   first_level = NULL;
   second_level = NULL;
+  /* calculate indices for position */
   calculate_sector_indices (&result, pos);
   if (result.type != ERR)
     {
@@ -155,12 +166,16 @@ void
 inode_init (void) 
 {
   list_init (&open_inodes);
+  /* David driving */
   lock_init (&open_inodes_lock);
 }
 
+/* extends an inode starting from a certain starting offset in bytes to be able 
+   to accomodate writes up to a certain ending point. allocates sectors to 
+   inode, but does not change the length. Caller must change length */
 bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
 {
-  // printf ("*** extending...\n");
+  /* Stephen driving */
   struct byte_query index;
   off_t direct_idx = -1, second_idx = -1, first_idx = -1;
   off_t sec_alloc, sec_len;
@@ -169,20 +184,22 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
   block_sector_t *level1, *level2;
   /* calculate number of sectors to allocate */
   sec_len = bytes_to_sectors (length) - bytes_to_sectors (start);
-  // printf ("start: %d\n", start);
+  /* if starting point is at a block boundary, that block isn't allocated */
   if (start % BLOCK_SECTOR_SIZE != 0)
     start += BLOCK_SECTOR_SIZE;
   calculate_sector_indices (&index, start);
+  if (index.type == ERR)
+    return false;
   if (index.type == DIRECT_BLOCK && sec_len > 0)
     {
       direct_idx = index.direct_block_index;
-      // printf ("direct_idx for extension: %d\n", direct_idx);
-      sec_alloc = 10 - direct_idx >= sec_len ? sec_len : 10 - direct_idx;
+      /* calculate the number of direct blocks to allocate */
+      sec_alloc = DIRECT_SECTORS - direct_idx >= sec_len ? 
+                  sec_len : DIRECT_SECTORS - direct_idx;
       if (free_map_allocate (sec_alloc, disk_inode->direct_blocks + direct_idx))
         {
           for (i = direct_idx; i < direct_idx + sec_alloc ; i++)
             {
-              // printf ("zeroing out direct blocks: %d", disk_inode->direct_blocks[i]);
               block_write (fs_device, disk_inode->direct_blocks[i], zeros);
             }
           sec_len -= sec_alloc;
@@ -194,15 +211,19 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
         }
       if (success)
         disk_inode->sectors_allocated += sec_alloc;
+      /* recalculate sector indices for fall-through */
       calculate_sector_indices (&index, start);
     }
   
   /* Matthew driving */
   if (success && index.type == FIRST_LEVEL && sec_len > 0)
     {
-      ASSERT ((level1 = palloc_get_page (PAL_ZERO)));
+      level1 = palloc_get_page (PAL_ZERO);
+      if (level1 == NULL)
+        return false;
       first_idx = index.first_level_index;
-      sec_alloc = 128 - first_idx >= sec_len ? sec_len : 128 - first_idx;
+      sec_alloc = INDIRECT_SECTORS - first_idx >= sec_len ? 
+                  sec_len : INDIRECT_SECTORS - first_idx;
 
       /* Partially filled first level */
       if (disk_inode->first_level != 0)
@@ -210,8 +231,12 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
       else
         free_map_allocate (1, &disk_inode->first_level);
 
+      /* allocate first level expects the sector of the indirect block in
+         the 0th index */
       level1[0] = disk_inode->first_level;
       
+      /* allocate starting from first_ind + 1 because the 0th index contains
+         the indirection block sector */
       if (!allocate_first_level (level1, first_idx + 1, sec_alloc))
         {
           success = false;
@@ -223,17 +248,21 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
         }
       if (success)
         disk_inode->sectors_allocated += sec_alloc;
+      /* recalculate sector indices for fall-through behavior */
       calculate_sector_indices (&index, start);
       palloc_free_page (level1);
     }
-    
+  
   if (success && index.type == SECOND_LEVEL && sec_len > 0)
     {
-      ASSERT ((level2 = palloc_get_page (PAL_ZERO)));
+      level2 = palloc_get_page (PAL_ZERO);
+      if (level2 == NULL)
+        return false;
       first_idx = index.first_level_index;
       second_idx = index.second_level_index;
       
-      /* Partially filled first level */
+      /* Partially filled second level, if not partially filled, then the
+         second level needs to be allocated */
       if (disk_inode->second_level != 0)
         block_read (fs_device, disk_inode->second_level, level2 + 1);
       else
@@ -241,7 +270,8 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
           {
             success = false;
           }
-
+      /* allocate_second_level expects the second level block sector at the 0th
+         index */
       level2[0] = disk_inode->second_level;
       
       if (!allocate_second_level (level2, first_idx, second_idx + 1, 
@@ -252,11 +282,15 @@ bool inode_extend (struct inode_disk *disk_inode, off_t start, off_t length)
       palloc_free_page (level2);
     }
 
+  /* if we failed to extend, free all of the sectors starting from the current
+     length of the disk inode */
   if (!success)
     inode_free_sectors (disk_inode->length, disk_inode);
   return success;
 }
 
+/* allocates disk sectors for inode by calling extend from 0 to length, 
+   records whether inode is for a directory or a file */
 bool
 inode_create (block_sector_t sector, off_t length, bool dir)
 {
@@ -275,7 +309,7 @@ inode_create (block_sector_t sector, off_t length, bool dir)
       size_t sectors = bytes_to_sectors (length);
       disk_inode->magic = INODE_MAGIC;
       disk_inode->sectors_allocated = 0;
-      /* first, allocate up to 10 sectors for the direct blocks */
+      /* extend the inode */
       success = inode_extend (disk_inode, 0, length);
 
       if (!success)
@@ -294,6 +328,9 @@ inode_create (block_sector_t sector, off_t length, bool dir)
   return success;
 }
 
+/* allocates length sectors for a first level indirection block, expects 
+   a non-NULL first_level page, and expects the 0th index in first level
+   to contain the indirect block's sector */
 static bool
 allocate_first_level (block_sector_t *first_level, off_t start, size_t length)
 {
@@ -310,14 +347,20 @@ allocate_first_level (block_sector_t *first_level, off_t start, size_t length)
     {
       for (i = start; i < start + length; i++)
         {
+          /* zeros out any allocated sectors */
           block_write (fs_device, first_level[i], zeros);
         }
+      /* writes the first level of indirection block to disk */
+      ASSERT (first_level[0] > 1);
       block_write (fs_device, first_level[0], first_level + 1);
       success = true;
     }
   return success;
 }
 
+/* allocates length sectors for a second level indirect block, expects a 
+   non-NULL second_level page, and expects the 0th index in second level to 
+   contain the second level indirection block's sector */
 static bool
 allocate_second_level (block_sector_t *second_level, off_t first_ind, 
                        off_t sec_ind, size_t length, 
@@ -327,15 +370,18 @@ allocate_second_level (block_sector_t *second_level, off_t first_ind,
   bool success = true;
   off_t num_sector;
   block_sector_t *first_level = palloc_get_page (PAL_ZERO);
-  ASSERT (first_level != NULL);
+  if (first_level == NULL)
+    return false;
 
   while (length != 0)
     {
-      /* the first level in the second level is not allocated */
+      /* the first level indirection block in the second level indirection block
+         needs to be allocated */
       if (second_level[sec_ind] == 0) 
         {
           if (!free_map_allocate (1, second_level + sec_ind))
             {
+              palloc_free_page (first_level);
               success = false;
               break;
             }
@@ -346,37 +392,41 @@ allocate_second_level (block_sector_t *second_level, off_t first_ind,
           first_level[0] = second_level[sec_ind];
           block_read (fs_device, second_level[sec_ind], first_level + 1);
         }
-      num_sector = length > 128 - first_ind ? 128 - first_ind : length;
-      length -= num_sector;
+      /* if the length needed is larger than an indirect block, then truncate */
+      num_sector = length > INDIRECT_SECTORS - first_ind ? 
+                   INDIRECT_SECTORS - first_ind : length;
       if (!allocate_first_level (first_level, first_ind + 1, num_sector))
         {
+          palloc_free_page (first_level);
           success = false;
           break;
         }
+      length -= num_sector;
       disk_inode->sectors_allocated += num_sector;
       sec_ind++;
       first_ind = 0;
     }
+  /* write the second level indirect block to disk */
   if (success)
     block_write (fs_device, second_level[0], second_level + 1);
   palloc_free_page (first_level);
   return success;
 }
 
+/* frees sectors in a first level indirect block, starting from an index */
 static bool
 free_first_level (struct inode_disk *disk_inode, block_sector_t level_sector, 
                   off_t index, size_t free_sec)
 {
   /* Stephen driving */
   ASSERT (level_sector > 1);
-  ASSERT (index + free_sec <= 128);
+  ASSERT (index + free_sec <= INDIRECT_SECTORS);
   block_sector_t *first_level = NULL;
   first_level = palloc_get_page (PAL_ZERO);
   if (first_level == NULL)
     return false;
 
   block_read (fs_device, level_sector, first_level + 1);
-
   first_level[0] = level_sector;
 
   if (index == 0)
