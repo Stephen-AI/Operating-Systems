@@ -46,21 +46,26 @@ filesys_done (void)
 bool
 filesys_create (const char *name, off_t initial_size, bool isdir) 
 {
+  /* David driving */
   block_sector_t inode_sector = 0;
   struct dir *dir;
   bool success;
   char *path, **path_args;
   int path_length;
   struct inode *inode;
+  /* ignore calls with empty names */
   if (strlen (name) == 0)
     return false;
 
+  /* allocate pages for parsing the path, call tokenize path to parse path */
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
   ASSERT (path != NULL && path_args != NULL);
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
 
+  /* if the first character in the path is '/', or if the thread's cwd isn't
+     set, then start from root */
   if (name[0] == '/' || thread_current ()->cwd == NULL)
     dir = dir_open_root ();
   else
@@ -155,7 +160,6 @@ change_working_directory (const char *name)
     dir = dir_reopen (thread_current ()->cwd);
   else
     dir = dir_open_root ();
-  // printf ("called dir_reopen on cwd from filesys_open: %p\n", dir);
 
   dir = path_lookup (dir, path_args, path_length);
   if (dir == NULL)

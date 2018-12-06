@@ -488,7 +488,8 @@ free_second_level (struct inode_disk *disk_inode, off_t first_ind,
   return true;
 }
 
-/* Free all sectors allocated to disk_inode */
+/* Frees sectors for a disk inode starting from the sector after the sectors
+   needed for the disk inode to have a length of start */
 static void
 inode_free_sectors (off_t start, struct inode_disk *disk_inode)
 {
@@ -502,11 +503,15 @@ inode_free_sectors (off_t start, struct inode_disk *disk_inode)
     start = start + BLOCK_SECTOR_SIZE;
 
   calculate_sector_indices (&query, start);
+  /* deallocates direct blocks */
   if (query.type == DIRECT_BLOCK && sec_len > 0)
     {
       i = query.direct_block_index;
-      sectors_to_free = 10 - i >= sec_len ? sec_len : 10 - i;
+      /* calculate number of sectors to free */
+      sectors_to_free = DIRECT_SECTORS - i >= sec_len ? 
+                        sec_len : DIRECT_SECTORS - i;
       free_map_release (disk_inode->direct_blocks + i, sectors_to_free);
+      /* increment start and recalculate indices to properly fall through */
       start += BLOCK_SECTOR_SIZE * sectors_to_free;
       sec_len -= sectors_to_free;
       disk_inode->sectors_allocated -= sectors_to_free;
@@ -517,9 +522,12 @@ inode_free_sectors (off_t start, struct inode_disk *disk_inode)
   if (query.type == FIRST_LEVEL && sec_len > 0)
     {
       i = query.first_level_index;
-      sectors_to_free = 128 - i >= sec_len ? sec_len : 128 - i;
-      ASSERT (free_first_level (disk_inode, disk_inode->first_level, 
-                                i, sectors_to_free));
+      sectors_to_free = INDIRECT_SECTORS - i >= sec_len ? 
+                        sec_len : INDIRECT_SECTORS - i;
+      /* freeing a first level should succeed, if it doesn't then we could leak
+         block sectors */
+      ASSERT (free_first_level (disk_inode, disk_inode->first_level, i, 
+                                sectors_to_free));
       start += BLOCK_SECTOR_SIZE * sectors_to_free;
       sec_len -= sectors_to_free;
       calculate_sector_indices (&query, start);
@@ -529,6 +537,8 @@ inode_free_sectors (off_t start, struct inode_disk *disk_inode)
     {
       i = query.first_level_index;
       j = query.second_level_index;
+      /* freeing a second level should succeed, if it doesn't then we could leak
+         block sectors */
       ASSERT (free_second_level (disk_inode, i, j, sec_len));
     }
 
@@ -543,6 +553,7 @@ inode_open (block_sector_t sector)
   struct inode *inode;
   /* Check whether this inode is already open. */
   /* David driving */
+  /* synchronizes access to open inodes list */
   lock_acquire (&open_inodes_lock);
   for (e = list_begin (&open_inodes); e != list_end (&open_inodes);
        e = list_next (e)) 
@@ -573,6 +584,7 @@ inode_open (block_sector_t sector)
   inode->removed = false;
   lock_init (&inode->inode_lock);
   block_read (fs_device, inode->sector, &inode->data);
+  /* initialize directory lock if the inode corresponds to a directory */
   if (inode_is_directory (inode))
     lock_init (&inode->dir_lock);
   lock_release (&open_inodes_lock);
@@ -583,6 +595,7 @@ inode_open (block_sector_t sector)
 struct inode *
 inode_reopen (struct inode *inode)
 {
+  /* David driving */
   lock_acquire (&inode->inode_lock);
   if (inode != NULL)
     inode->open_cnt++;
@@ -606,13 +619,17 @@ inode_close (struct inode *inode)
   /* Ignore null pointer. */
   if (inode == NULL)
     return;
-  lock_acquire (&open_inodes_lock);
+  /* David driving */
+  /* synchronize decrementing inode's open_cnt, and removing from the open
+     inodes list */
+  lock_acquire (&inode->inode_lock);
   /* Release resources if this was the last opener. */
   if (--inode->open_cnt == 0)
     {
       /* Remove from inode list and release lock. */
+      lock_acquire (&open_inodes_lock);
       list_remove (&inode->elem);
- 
+      lock_release (&open_inodes_lock);
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
@@ -624,10 +641,15 @@ inode_close (struct inode *inode)
         {
           block_write (fs_device, inode->sector, &inode->data);
         }
-
-      free (inode); 
+      /* unnecessary to release lock because it's going to be freed, 
+         but just to be safe */
+      lock_release (&inode->inode_lock);
+      free (inode);
+      inode = NULL; 
     }
-  lock_release (&open_inodes_lock);
+  /* check if we freed the inode before we lock release */
+  if (inode != NULL)
+    lock_release (&inode->inode_lock);
 }
 
 /* Marks INODE to be deleted when it is closed by the last caller who
@@ -635,6 +657,7 @@ inode_close (struct inode *inode)
 void
 inode_remove (struct inode *inode) 
 {
+  /* Matthew driving */
   lock_acquire (&inode->inode_lock);
   ASSERT (inode != NULL);
   inode->removed = true;
@@ -695,6 +718,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
   return bytes_read;
 }
 
+/* returns whether an inode has been removed or not, must be called with the
+   inode lock */
 bool
 inode_is_removed (struct inode *inode)
 {
@@ -702,7 +727,10 @@ inode_is_removed (struct inode *inode)
   ASSERT (inode != NULL);
   return inode->removed;
 }
-/* Determines whether an inode corresponds to a file or to a directory */
+
+/* Determines whether an inode corresponds to a file or to a directory, 
+   unsynchronized because whether an inode is a directory or file will not
+   change */
 bool
 inode_is_directory (struct inode *inode)
 {
@@ -720,16 +748,20 @@ off_t
 inode_write_at (struct inode *inode, const void *buffer_, off_t size,
                 off_t offset) 
 {
+  /* David driving */
   const uint8_t *buffer = buffer_;
   off_t bytes_written = 0;
   uint8_t *bounce = NULL;
   off_t inode_len = inode_length (inode);
   off_t new_len = size + offset;
+  /* variable to indicate whether extension is necessary */
   bool extended = offset + size > inode_len;
   if (inode->deny_write_cnt)
     return 0;
   if (extended)
     {
+      /* synchronize extension of file, acquire and hold the lock until our
+         bytes have been written */
       lock_acquire (&inode->inode_lock);
       if (!inode_extend (&inode->data, inode_len, offset + size))
         { 
@@ -743,11 +775,11 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       /* Sector to write, starting byte offset within sector. */
       block_sector_t sector_idx = byte_to_sector (inode, offset);
       int sector_ofs = offset % BLOCK_SECTOR_SIZE;
-      // printf ("sectors allocated: %d, offset: %d\n", inode->data.sectors_allocated, offset);
+      /* if falling into the write, disk inode should have enough sectors to 
+         accomodate the write */
       ASSERT (inode->data.sectors_allocated * BLOCK_SECTOR_SIZE > offset);
       ASSERT (sector_idx);
-      /* Bytes left in inode, bytes left in sector, lesser of the two. */
-      // off_t inode_left = inode_length (inode) - offset;
+      /* bytes left in sector, inode length may not be updated at this point */
       int sector_left = BLOCK_SECTOR_SIZE - sector_ofs;
       int min_left = sector_left;
 
@@ -756,7 +788,6 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       if (chunk_size <= 0)
         break;
 
-      // printf (" writing to sector: %d\n", sector_idx);
       if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
         {
           /* Write full sector directly to disk. */
@@ -788,7 +819,9 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       offset += chunk_size;
       bytes_written += chunk_size;
     }
-  if (new_len > inode->data.length)
+  /* update length only after writing is finished to ensure atomicity of 
+     extending and writing new sectors */
+  if (extended && new_len > inode->data.length)
     inode->data.length = new_len;
 
   if (extended)
@@ -803,6 +836,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 void
 inode_deny_write (struct inode *inode) 
 {
+  /* Matthew driving */
   lock_acquire (&inode->inode_lock);
   inode->deny_write_cnt++;
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);
@@ -815,6 +849,7 @@ inode_deny_write (struct inode *inode)
 void
 inode_allow_write (struct inode *inode) 
 {
+  /* Matthew driving */
   lock_acquire (&inode->inode_lock);
   ASSERT (inode->deny_write_cnt > 0);
   ASSERT (inode->deny_write_cnt <= inode->open_cnt);

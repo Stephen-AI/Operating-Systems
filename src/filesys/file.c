@@ -20,6 +20,7 @@ file_open (struct inode *inode)
   struct file *file = calloc (1, sizeof *file);
   if (inode != NULL && file != NULL)
     {
+      /* David driving */
       ASSERT (!inode_is_directory (inode));
       file->inode = inode;
       file->pos = 0;
@@ -46,7 +47,7 @@ file_reopen (struct file *file)
 block_sector_t
 file_get_inumber (struct file *file)
 {
-  /* Matthew driving lol */
+  /* Matthew driving */
   return inode_get_inumber (file->inode);
 }
 

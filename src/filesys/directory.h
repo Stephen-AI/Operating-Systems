@@ -12,23 +12,15 @@
    retained, but much longer full path names must be allowed. */
 #define NAME_MAX 14
 /* David driving */
-#define DIR_INIT 8
+#define DIR_INIT 8                      /* initial size of a new directory */
 
 /* A directory. */
 struct dir 
   {
     struct inode *inode;                /* Backing store. */
     off_t pos;                          /* Current position. */
-    bool deny_write;
+    bool deny_write;                    /* just to match file struct */
   };
-
-struct create
-  {
-    bool isdir;
-    off_t initial_size;
-  };
-
-
 
 block_sector_t get_dir_sector (struct dir *);
 int tokenize_path (char *, char **);

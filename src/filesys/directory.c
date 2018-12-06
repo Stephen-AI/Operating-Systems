@@ -23,22 +23,29 @@ static bool remove_dir (struct inode *inode);
 static struct lock *
 dir_get_lock (struct dir *dir)
 {
+  /* David driving */
   ASSERT (inode_is_directory (dir->inode));
   return &dir->inode->dir_lock;
 }
 
+/* increments the number of files in a directory, must be called with the
+   directory lock */
 static void 
 dir_incr_file_cnt (struct dir *dir)
 {
   dir->inode->data.num_files++;
 }
 
+/* decrements the number of files in a directory, must be called with the
+   directory lock */
 static void 
 dir_decr_file_cnt (struct dir *dir)
 {
   dir->inode->data.num_files--;
+  ASSERT (dir->inode->data.num_files >= 2);
 }
 
+/* get the sector number corresponding to this directory */
 block_sector_t
 get_dir_sector (struct dir *dir)
 {
@@ -47,13 +54,16 @@ get_dir_sector (struct dir *dir)
 }
 
 /* Creates a directory with space for ENTRY_CNT entries in the
-   given SECTOR.  Returns true if successful, false on failure. */
+   given SECTOR.  Returns true if successful, false on failure.
+   Takes a parent sector to create '..' and '.' entries */
 bool
 dir_create (block_sector_t parent_sec, block_sector_t sector, size_t entry_cnt)
 {
+  /* David driving */
   struct dir *cur_dir;
   if (inode_create (sector, (2 + entry_cnt) * sizeof (struct dir_entry), true))
     {
+      /* adds '..' and '.' to directory while creating it */
       cur_dir = dir_open (inode_open (sector));
       dir_add (cur_dir, "..", parent_sec);
       dir_add (cur_dir, ".", sector);
@@ -69,11 +79,13 @@ dir_create (block_sector_t parent_sec, block_sector_t sector, size_t entry_cnt)
 struct dir *
 dir_open (struct inode *inode) 
 {
-  ASSERT (inode->data.isdir);
+  /* Matthew driving */
   struct dir *dir = calloc (1, sizeof *dir);
   if (inode != NULL && dir != NULL)
     {
+      ASSERT (inode->data.isdir);
       dir->inode = inode;
+      /* set position to not read . or .. */
       dir->pos = 2 * sizeof (struct dir_entry);
       return dir;
     }
@@ -117,6 +129,7 @@ dir_close (struct dir *dir)
 struct inode *
 dir_get_inode (struct dir *dir) 
 {
+  /* David driving */
   return dir->inode;
 }
 
@@ -156,15 +169,19 @@ bool
 dir_lookup (const struct dir *dir, const char *name,
             struct inode **inode) 
 {
+  /* YunFan driving */
   struct dir_entry e;
 
   ASSERT (dir != NULL);
+  /* makes sure we're calling dir_lookup on a directory */
   if (!inode_is_directory (dir->inode))
     return false;
   
+  /* synchronizes lookups in a directory */
   struct lock *dir_lock = dir_get_lock (dir);
   lock_acquire (dir_lock);
 
+  /* don't allow lookups in a directory that has been removed */
   if (inode_is_removed (dir->inode))
     {
       lock_release (dir_lock);
@@ -179,9 +196,12 @@ dir_lookup (const struct dir *dir, const char *name,
   return *inode != NULL;
 }
 
+/* splits a *name into a vector of string pointers, and returns the number of
+   tokens created, used for path traversal */
 int
 tokenize_path (char *name, char **argv)
 {
+  /* Stephen driving */
   int num_tokens = 0;
   char *save_ptr, *token;
   for (token = strtok_r (name, "/", &save_ptr); token != NULL;
@@ -193,9 +213,13 @@ tokenize_path (char *name, char **argv)
   return num_tokens;
 }
 
+/* attempts to traverse a directory path up to path_length directories, 
+   each name in the path must correspond to a directory. Returns a struct dir
+   if successful, otherwise returns NULL */
 struct dir *
 path_lookup (struct dir *dir, char **path, int path_length)
 {
+  /* YunFan driving */
   int i = 0;
   struct dir *cur_dir = dir;
   struct inode *inode;
@@ -208,9 +232,7 @@ path_lookup (struct dir *dir, char **path, int path_length)
         }
       dir_close (cur_dir);
       if (inode_is_directory (inode))
-        {
-          cur_dir = dir_open (inode);
-        }
+        cur_dir = dir_open (inode);
       else
         return NULL;
     }
@@ -222,24 +244,27 @@ path_lookup (struct dir *dir, char **path, int path_length)
    INODE_SECTOR.
    Returns true if successful, false on failure.
    Fails if NAME is invalid (i.e. too long) or a disk or memory
-   error occurs. */
+   error occurs, or if the directory has already been removed. */
 bool
 dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
 {
+  /* Matthew driving */
   struct dir_entry e;
   off_t ofs;
   bool success = false;
-  struct lock *dir_lock = dir_get_lock (dir);
-  lock_acquire (dir_lock);
+  struct lock *dir_lock;
+  ASSERT (dir != NULL);
+  ASSERT (name != NULL);
 
+  /* synchronizes adding to a directory */
+  dir_lock = dir_get_lock (dir);
+  lock_acquire (dir_lock);
+  /* check if directory has been removed */
   if (inode_is_removed (dir->inode))
     {
       lock_release (dir_lock);
       return false;
     }
-  ASSERT (dir != NULL);
-  ASSERT (name != NULL);
-
   /* Check NAME for validity. */
   if (*name == '\0' || strlen (name) > NAME_MAX)
     return false;
@@ -265,6 +290,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   strlcpy (e.name, name, sizeof e.name);
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  /* if we added a file, increment the number of files in the directory */
   if (success)
     dir_incr_file_cnt (dir);
 
@@ -273,7 +299,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   return success;
 }
 
-/* mark the dirctory as removed by taking in the inode of the directory */
+/* mark the directory as removed by taking in the inode of the directory */
 static bool
 remove_dir (struct inode *inode)
 {
@@ -323,6 +349,7 @@ dir_remove (struct dir *dir, const char *name)
   if (inode == NULL)
     goto done;
 
+  /* check if file we're trying to remove is a directory */
   if (inode_is_directory (inode))
     {
       if (!remove_dir (inode))
@@ -357,6 +384,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
 
   lock_acquire (dir_lock);
 
+  /* don't allow processes to read a removed directory */
   if (inode_is_removed (dir->inode))
     {
       lock_release (dir_lock);
