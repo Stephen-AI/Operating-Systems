@@ -9,31 +9,26 @@
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
+
 #define DIRECT_LIMIT 5120             /* upper limit for direct block access */
 #define FIRST_LEVEL_LIMIT 70656       /* upper limit for first level block   */
 #define SECOND_LEVEL_LIMIT 8459264    /* upper limit for second level block  */
+/* number of bytes that fits in an indirect block */
 #define FIRST_LEVEL_SIZE (BLOCK_SECTOR_SIZE * (BLOCK_SECTOR_SIZE / 4))
+/* number of sectors per indirect block */
 #define INDIRECT_SECTORS (BLOCK_SECTOR_SIZE / (sizeof BLOCK_SECTOR_SIZE))
+/* number of sectors in an inode's direct block */
 #define DIRECT_SECTORS 10
-/* On-disk inode.
-   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
+/* static array of zeroes used for zeroing out blocks */
 static char zeros[BLOCK_SECTOR_SIZE];
-
-static void inode_free_sectors (off_t, struct inode_disk *);
-static bool allocate_first_level (block_sector_t *, off_t , size_t);
-static bool allocate_second_level (block_sector_t *, off_t, off_t, 
-                                   size_t, struct inode_disk *);
-static bool free_second_level (struct inode_disk *, off_t, off_t, size_t);
-static bool free_first_level (struct inode_disk *, block_sector_t,
-                              off_t, size_t);
 
 /* enums for identifying index type of a byte query */
 enum level_type
   {
-    DIRECT_BLOCK,
-    FIRST_LEVEL,
-    SECOND_LEVEL,
-    ERR
+    DIRECT_BLOCK,                       /* direct block access */
+    FIRST_LEVEL,                        /* first level block access */
+    SECOND_LEVEL,                       /* second level block access */
+    ERR                                 /* access past file limit */
   };
 
 /* struct for storing indices on calculated positions for a particular 
@@ -45,6 +40,14 @@ struct byte_query
     off_t second_level_index;           /* second indirection block index */
     off_t first_level_index;            /* first indirection block index */
   };
+
+static void inode_free_sectors (off_t, struct inode_disk *);
+static bool allocate_first_level (block_sector_t *, off_t , size_t);
+static bool allocate_second_level (block_sector_t *, off_t, off_t, 
+                                   size_t, struct inode_disk *);
+static bool free_second_level (struct inode_disk *, off_t, off_t, size_t);
+static bool free_first_level (struct inode_disk *, block_sector_t,
+                              off_t, size_t);
 
 /* Returns the number of sectors to allocate for an inode SIZE
    bytes long. */

@@ -9,6 +9,8 @@
 
 struct bitmap;
 
+/* On-disk inode.
+   Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk
   {
     size_t sectors_allocated;           /* # of sectors allocated to file */
