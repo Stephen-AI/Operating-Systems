@@ -74,7 +74,12 @@ filesys_create (const char *name, off_t initial_size, bool isdir)
   /* allocate pages for parsing the path, call tokenize path to parse path */
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
-  ASSERT (path != NULL && path_args != NULL);
+  if (path == NULL || path_args == NULL)
+    {
+      palloc_free_page (path);
+      palloc_free_page (path_args);
+      return false;
+    }
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
 
@@ -133,7 +138,12 @@ filesys_open (const char *name)
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
 
-  ASSERT (path != NULL && path_args != NULL);
+  if (path == NULL || path_args == NULL)
+    {
+      palloc_free_page (path);
+      palloc_free_page (path_args);
+      return NULL;
+    }
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
   dir = get_start_dir (name);
@@ -173,7 +183,12 @@ change_working_directory (const char *name)
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
 
-  ASSERT (path != NULL && path_args != NULL);
+  if (path == NULL || path_args == NULL)
+    {
+      palloc_free_page (path);
+      palloc_free_page (path_args);
+      return false;
+    }
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
   dir = get_start_dir (name);
@@ -212,7 +227,12 @@ filesys_remove (const char *name)
   path = palloc_get_page (PAL_ZERO);
   path_args = palloc_get_page (PAL_ZERO);
 
-  ASSERT (path != NULL && path_args != NULL);
+  if (path == NULL || path_args == NULL)
+    {
+      palloc_free_page (path);
+      palloc_free_page (path_args);
+      return false;
+    }
   strlcpy (path, name, strlen (name) + 1);
   path_length = tokenize_path (path, path_args);
 

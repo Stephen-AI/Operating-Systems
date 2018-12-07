@@ -533,12 +533,18 @@ initialize_stack (void **esp, const char *file_name)
   /* YunFan drove here */
   *esp = PHYS_BASE;
   bool success = false;
-  char *token, *save_ptr;
-  char s[128];
-  strlcpy (s, file_name, strlen (file_name) + 1);
-  char *argv[128];
+  char *token, *save_ptr, *s;
+  char **argv;
   int i = 0, offset_str = 0, offset_ptr, argc;
-
+  s = palloc_get_page (PAL_ZERO);
+  argv = palloc_get_page (PAL_ZERO);
+  if (s == NULL || argv == NULL)
+    {
+      palloc_free_page (s);
+      palloc_free_page (argv);
+      return false;
+    }
+  strlcpy (s, file_name, strlen (file_name) + 1);
   for (token = strtok_r (s, " ", &save_ptr); token != NULL;
       token = strtok_r (NULL, " ", &save_ptr))
     {
@@ -555,45 +561,32 @@ initialize_stack (void **esp, const char *file_name)
   void *arg_ptr = *esp - offset_ptr;    /* ponter to address of argv[0] */
 
   /* David drove here */
-  if (!is_valid_ptr (arg_ptr - 4) || !is_valid_ptr (arg_ptr - 8) || 
-      !is_valid_ptr (arg_ptr - 12))
-    {
-      printf ("argument pointer out of page bound\n");
-      return success;
-    }
-  memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
-  memcpy ((arg_ptr - 8), &argc, sizeof (int));
-  memset ((arg_ptr - 12), 0, sizeof (int));
   *esp = arg_ptr - 12;
 
   if (PHYS_BASE - *esp > PGSIZE)
     {
-      printf ("argument pointer out of page bound\n");
+      palloc_free_page (s);
+      palloc_free_page (argv);
       return false;
     }
 
+  memcpy ((arg_ptr - 4), &arg_ptr, sizeof (arg_ptr));
+  memcpy ((arg_ptr - 8), &argc, sizeof (int));
+  memset ((arg_ptr - 12), 0, sizeof (int));
   /* copies the contents of tokenized string array to top of stack
      copies the addresses of each tokenized string to bottom(ish) of stack */
   for (i = 0; i < argc; i++)
     {
-      if (!is_valid_ptr (str_ptr) || !is_valid_ptr (arg_ptr))
-        {
-          printf ("page bound error while copying to user memory\n");
-          return success;
-        }
       memcpy (str_ptr, argv[i], strlen (argv[i]) + 1);
       memcpy (arg_ptr, &str_ptr, sizeof (str_ptr));
       str_ptr += (strlen (argv[i]) + 1);
       arg_ptr += sizeof (str_ptr);
     }
-  if (!is_valid_ptr (arg_ptr))
-    {
-      printf ("page bound error while null terminating argv array\n");
-      return success;
-    }
   /* adds null ptr at argv[c] */
   memset (arg_ptr, NULL, sizeof (arg_ptr)); 
   success = true;
+  palloc_free_page (s);
+  palloc_free_page (argv);
   return success;
 }
 

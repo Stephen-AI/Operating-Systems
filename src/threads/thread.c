@@ -185,7 +185,7 @@ thread_create (const char *name, int priority,
   /* YunFan driving */
   /* to embed the child thread into the parent's children list */ 
   list_push_back (&thread_current ()->children_list, &t->child_elem);
-  
+  /* David driving */
   if (thread_current ()->cwd != NULL)
     t->cwd = dir_reopen (thread_current ()->cwd);
   /* Stack frame for kernel_thread(). */

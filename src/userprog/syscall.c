@@ -11,6 +11,8 @@
 #include "userprog/process.h"
 #include "filesys/file.h"
 #include "devices/input.h"
+#include "threads/palloc.h"
+#include "threads/pte.h"
 
 /* David driving */
 static void syscall_handler (struct intr_frame *);
@@ -28,6 +30,8 @@ static void seek_handler (struct intr_frame *f);
 static void tell_handler (struct intr_frame *f);
 static void close_handler (struct intr_frame *f);
 static bool is_valid_str (char *str);
+static bool is_valid_buf (char *buf, size_t bytes_to_check);
+static bool check_writable_page (uint32_t *pte);
 /* Stephen driving */
 static void chdir_handler (struct intr_frame *f);
 static void mkdir_handler (struct intr_frame *f);
@@ -35,16 +39,14 @@ static void readdir_handler (struct intr_frame *f);
 static void isdir_handler (struct intr_frame *f);
 static void inumber_handler (struct intr_frame *f);
 
-/* check if a string is in valid memory*/
+/* check if a string is in valid memory */
 bool 
 is_valid_str (char *str)
 {
-  /* YunFan is driving*/
-  struct thread *cur = thread_current ();
-  uint32_t *page = lookup_page (cur->pagedir, str, false);
+  /* YunFan driving */
   void *upper = pg_round_up (str);
   
-  if (!is_user_vaddr (str) || page == NULL)
+  if (!is_valid_ptr (str))
     return false;
 
   while (*str != '\0')
@@ -56,14 +58,44 @@ is_valid_str (char *str)
     /* when the string exceeds a page boundary check if it's in the next page*/
       else
         {
-          page = lookup_page (cur->pagedir, str, false);
-          if (!is_user_vaddr (str) || page == NULL)
+          /* David driving */
+          if (!is_valid_ptr (str))
             return false;
           else 
             upper = pg_round_up (str);
         }
     }
   return true;
+}
+
+/* check if a buffer is in valid user memory and is writable */
+bool is_valid_buf (char *buf, size_t bytes_to_check)
+{
+  /* David driving */
+  uint32_t *pte, *pagedir;
+  size_t count = 0;
+  pagedir = thread_current ()->pagedir;
+  while (count < bytes_to_check)
+    {
+      /* use the pte because we need to check if page is writable */
+      pte = lookup_page (pagedir, buf, false);
+      if (!check_writable_page (pte))
+        return false;
+      count += ((size_t)pg_round_down (buf + (PGSIZE)) - (size_t)buf);
+      buf = pg_round_down (buf + PGSIZE);
+    }
+  return true;
+}
+
+/* checks validity of a page table entry for writing purposes, checks if 
+   page is present, a user page, and writable */
+bool check_writable_page (uint32_t *pte)
+{
+  /* David driving */
+  return !(pte == NULL || 
+           !(*pte & PTE_P) || 
+           !(*pte & PTE_U) || 
+           !(*pte & PTE_W));
 }
 
 void
@@ -79,7 +111,9 @@ is_valid_ptr (void *ptr)
 {
   /* Stephen drove here */
   struct thread *cur = thread_current ();
-  return is_user_vaddr (ptr) && lookup_page (cur->pagedir, ptr, false) != NULL;
+  /* David driving */
+  return ptr != NULL && is_user_vaddr (ptr) && 
+         pagedir_get_page (cur->pagedir, ptr) != NULL;
 }
 
 static void
@@ -149,7 +183,7 @@ exec_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
   void *file_ptr = f->esp + 4;
-  char *buf, s[128];
+  char *buf, *s;
 
   if (!is_valid_ptr (file_ptr))
     thread_exit ();
@@ -157,10 +191,11 @@ exec_handler (struct intr_frame *f UNUSED)
   buf = *((char **) f->esp + 1);
   if (!is_valid_str (buf))
     thread_exit ();
-  
+  s = palloc_get_page (PAL_ZERO);
   /* copy the name of the file being exec'd into s from buf */
   strlcpy (s, buf, strlen (buf) + 1);
   f->eax = process_execute (s);
+  palloc_free_page (s);
 }
 
 /* wait system call handler */
@@ -187,10 +222,7 @@ create_handler (struct intr_frame *f UNUSED)
     thread_exit ();
   if (!is_valid_str (*buf))
     thread_exit ();
-
-  
   f->eax = filesys_create (*buf, *(int *)size_ptr, false);
-  
 }
 
 /* remove file system call handler */
@@ -207,7 +239,6 @@ remove_handler (struct intr_frame *f UNUSED)
     thread_exit ();
   
   f->eax = filesys_remove (*file_name);
-  
 }
 
 /* open file system call handler */
@@ -216,7 +247,6 @@ open_handler (struct intr_frame *f UNUSED)
 {
   /* David driving */
   void *file_ptr = f->esp + 4;
-  /*TODO stop dereferencing stack pointer before checking validity */  
   char **buf = ((char **) f->esp + 1);
   struct file *file;
   int fd;
@@ -238,12 +268,10 @@ open_handler (struct intr_frame *f UNUSED)
             {
               cur->open_files[fd] = file;
               f->eax = fd;
-              
               return;
             }
         }
     }
-  
   f->eax = -1;
 }
 
@@ -273,9 +301,7 @@ filesize_handler (struct intr_frame *f UNUSED)
         }
       else
         {
-          
           f->eax = file_length (file);
-          
         }
     }
 }
@@ -291,14 +317,13 @@ read_handler (struct intr_frame *f UNUSED)
   int fd, byte_read;
   if (!is_valid_ptr (size_ptr))
     thread_exit ();
-  if (!is_valid_str (*buf))
+  if (!is_valid_buf (*buf, *(int *)size_ptr))
     thread_exit ();
 
   fd = *(int *)(f->esp + 4);
   
   if (fd == 0)
     {
-      /* Maybe synchronize keyboard input with filesys?? */
       input_getc (); /* read stdio and complete */
     }
   else if (fd < 0 || fd >= MAX_OPEN_FILES)
@@ -317,10 +342,7 @@ read_handler (struct intr_frame *f UNUSED)
       else
         {
           /* Stephen driving */
-          /* synchronize reading/writing */
-          
           byte_read = file_read (file, *buf, *(int *)size_ptr);
-          
           f->eax = byte_read;
         }
     }
@@ -332,7 +354,6 @@ write_handler (struct intr_frame *f UNUSED)
 {
   /* Matthew driving */
   int *count_ptr = (int *)(f->esp + 12);
-  /*TODO stop dereferencing stack pointer before checking validity */ 
   int fd, bytes, buf_len, count;
   struct file *file;
   char **buf = ((char **) (f->esp + 8));
@@ -358,15 +379,12 @@ write_handler (struct intr_frame *f UNUSED)
       if (file == NULL)
         bytes = -1;
       /* Matthew driving */
-      /* synchronize reading/writing */
       else 
         {
-          
           if (!file_isdir (file))
             bytes = file_write (file, *buf, count);
           else
             bytes = -1;
-          
         }
     }
   f->eax = bytes;
@@ -388,9 +406,7 @@ seek_handler (struct intr_frame *f UNUSED)
       file = thread_current ()->open_files[*fd_ptr];
       if (file != NULL)
         {
-          
           file_seek (file, *pos_ptr);
-          
         }
     }
 }
@@ -413,9 +429,7 @@ tell_handler (struct intr_frame *f UNUSED)
         f->eax = -1;
       else
         {
-          
           f->eax = file_tell (file);
-          
         }
     }
 }
@@ -437,7 +451,6 @@ close_handler (struct intr_frame *f UNUSED)
       thread_current ()->open_files[*fd_ptr] = NULL;
       
       file_close (file);
-      
     }
 }
 
@@ -479,7 +492,7 @@ static void readdir_handler (struct intr_frame *f)
   struct file *file;
   if (!is_valid_ptr (fd_ptr))
     thread_exit ();
-  if (!is_valid_str (*buf))
+  if (!is_valid_buf (*buf, READDIR_MAX_LEN + 1))
     thread_exit ();
 
   f->eax = false;
