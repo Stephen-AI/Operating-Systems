@@ -182,6 +182,7 @@ file_tell (struct file *file)
 bool
 file_isdir (struct file *file)
 {
+  /* David driving */
   ASSERT (file != NULL);
   return inode_is_directory (file->inode);
 }
