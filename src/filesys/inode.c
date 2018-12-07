@@ -766,7 +766,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
       /* synchronize extension of file, acquire and hold the lock until our
          bytes have been written */
       lock_acquire (&inode->inode_lock);
-      if (!inode_extend (&inode->data, inode_len, offset + size))
+      if (!inode_extend (&inode->data, inode_length (inode), offset + size))
         { 
           inode_free_sectors (inode_length (inode), &inode->data);
           lock_release (&inode->inode_lock);
