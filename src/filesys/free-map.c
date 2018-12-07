@@ -7,6 +7,7 @@
 #include "threads/synch.h"
 
 static struct file *free_map_file;   /* Free map file. */
+/* David driving */
 static struct lock free_map_lock;    /* Synchronizes access to free map file */
 static struct bitmap *free_map;      /* Free map, one bit per sector. */
 
@@ -24,7 +25,7 @@ free_map_init (void)
 }
 
 /* Allocates CNT non-contiguous sectors from the free map and stores
-   the first into *SECTORP.
+   them consecutively in *SECTORP.
    Returns true if successful, false if not enough consecutive
    sectors were available or if the free_map file could not be
    written. */
@@ -42,6 +43,7 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
       ASSERT (sector > 1);
       if (sector == BITMAP_ERROR)
       {
+        /* allocation failed, so unflip anything that we allocated previously */
         for (j = 0; j < i; j++)
           {
             ASSERT (bitmap_test (free_map, sectorp[j]));
@@ -52,8 +54,10 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
       }
       sectorp[i] = sector; 
     }
+  /* write allocations to the free map */
   if (free_map_file != NULL && !bitmap_write (free_map, free_map_file))
     {
+      /* if failed to write changes, deallocate all sectors allocated */
       for (j = 0; j < i; j++)
         {
           ASSERT (bitmap_test (free_map, sectorp[j]));
@@ -65,7 +69,8 @@ free_map_allocate (size_t cnt, block_sector_t *sectorp)
   return success;
 }
 
-/* Makes CNT sectors starting at SECTOR available for use. */
+/* Makes CNT sectors starting from sectorp available for use.
+   Takes an array of sectors to free */
 void
 free_map_release (block_sector_t *sectorp, size_t cnt)
 {
@@ -73,6 +78,8 @@ free_map_release (block_sector_t *sectorp, size_t cnt)
   size_t i;
   for (i = 0; i < cnt; i++)
     {
+      /* shouldn't be trying to release free map or root dir sectors,
+         and sectors being released should be allocated */
       ASSERT (sectorp[i] > 1);
       ASSERT (bitmap_test (free_map, sectorp[i]));
       bitmap_flip (free_map, sectorp[i]);

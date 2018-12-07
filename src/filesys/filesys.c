@@ -12,6 +12,7 @@
 struct block *fs_device;
 
 static void do_format (void);
+/* David driving */
 static struct dir *get_start_dir (const char *name);
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
